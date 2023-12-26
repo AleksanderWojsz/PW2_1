@@ -9,6 +9,90 @@
 #define PW2_MOJA_H
 
 #define MAX_PATH_LENGTH 1024
+
+
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct Message {
+    void *data;
+    int count;
+    int source;
+    int tag;
+    struct Message *next;
+} Message;
+
+void list_print(Message *head) {
+    Message *current = head;
+    int i = 0; // Licznik do numerowania wiadomości
+
+    while (current != NULL) {
+        printf("Wiadomosc %d:\n", ++i);
+        printf("  data %d\n", *(const int *) current->data);
+        printf("  Ilosc: %d\n", current->count);
+        printf("  Zrodlo: %d\n", current->source);
+        printf("  Tag: %d\n\n", current->tag);
+        current = current->next;
+    }
+}
+
+// Dodawanie nowego elementu na koniec listy
+void list_add(Message **head, void const *data, int count, int source, int tag) {
+    Message *new_message = malloc(sizeof(Message));
+    new_message->data = malloc(count);
+    memcpy(new_message->data, data, count);
+    new_message->count = count;
+    new_message->source = source;
+    new_message->tag = tag;
+    new_message->next = NULL;
+
+    if (*head == NULL) {
+        *head = new_message;
+    } else {
+        Message *current = *head;
+        while (current->next != NULL) {
+            current = current->next;
+        }
+        current->next = new_message;
+    }
+}
+
+// Znajdowanie pierwszego elementu o wskazanym count, source, tag
+Message *list_find(Message *head, int count, int source, int tag) {
+    Message *current = head;
+    while (current != NULL) {
+        if (current->count == count && current->source == source && current->tag == tag) {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL; // Nie znaleziono elementu
+}
+
+// Usuwanie pierwszego elementu o wskazanym count, source, tag
+void list_remove(Message **head, int count, int source, int tag) {
+    Message *current = *head;
+    Message *previous = NULL;
+    while (current != NULL) {
+        if (current->count == count && current->source == source && current->tag == tag) {
+            if (previous == NULL) {
+                // Usuwamy pierwszy element
+                *head = current->next;
+            } else {
+                // Usuwamy element w środku lub na końcu
+                previous->next = current->next;
+            }
+            free(current->data);
+            free(current);
+            return;
+        }
+        previous = current;
+        current = current->next;
+    }
+}
+
+
+
 void print_open_descriptors(void)
 {
     const char* path = "/proc/self/fd";
@@ -48,5 +132,9 @@ void print_open_descriptors(void)
 
     closedir(dr);
 }
+
+
+
+
 
 #endif //PW2_MOJA_H

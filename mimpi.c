@@ -4,6 +4,7 @@
 #include "channel.h"
 #include "mimpi.h"
 #include "mimpi_common.h"
+#include "moja.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,15 +12,6 @@
 int MIMPI_World_size();
 
 int MIMPI_World_rank();
-
-struct Message {
-    void const *data;
-    int count;
-    int tag;
-};
-typedef struct Message Message;
-
-Message message;
 
 void notify_iam_in() {
     int is_active[MIMPI_World_size() + 1];
@@ -76,7 +68,6 @@ void MIMPI_Init(bool enable_deadlock_detection) {
 
     notify_iam_in();
 
-//    print_active();
 }
 
 void MIMPI_Finalize() {
@@ -112,15 +103,9 @@ MIMPI_Retcode MIMPI_Send(
     int destination,
     int tag
 ) {
-    if (!is_in_MPI_block(destination)) {
-        printf("cel nie jest w bloku MPI\n");
-    }
 
-    // dzielimy wiadomosc na części rozmiaru 500B + ile + z_ilu + tag
-    // ile oznacza która to częśc wiadomości np 2 z 4
-    // z_ilu oznacza ile części ma wiadomość np 4 z 4
-    // tag oznacza tag wiadomości
-    // size to dlugosc wiadomosci
+
+    // dzielimy wiadomosc na części rozmiaru ile + z_ilu + tag + current_message_size + wiadomosc = 512B
 
     int max_message_size = 512 - sizeof(int) * 4;
 
@@ -142,7 +127,7 @@ MIMPI_Retcode MIMPI_Send(
         memcpy(message + sizeof(int) * 3, &current_message_size, sizeof(int));
         memcpy(message + sizeof(int) * 4, data + i * max_message_size, current_message_size);
 
-        printf("Ala4 %d %d %d\n", ile, z_ilu, current_message_size);
+//        printf("Ala4 %d %d %d\n", ile, z_ilu, current_message_size);
         chsend(MIMPI_get_write_desc(MIMPI_World_rank(), destination), message, 512);
         ile++;
         free(message);
@@ -151,43 +136,79 @@ MIMPI_Retcode MIMPI_Send(
     return 0;
 }
 
+Message* received_list = NULL;
+
 MIMPI_Retcode MIMPI_Recv(
-        void *data,
+        void* data,
         int count,
         int source,
         int tag
 ) {
+    // sprawdzamy czy już wcześniej nie odebraliśmy takiej wiadomości
 
-    if (!is_in_MPI_block(source)) {
-        printf("zrodlo nie jest w bloku MPI\n");
+    Message *message = list_find(received_list, count, source, tag);
+    if (message != NULL) {
+        // Przepisanie danych do bufora uzytkownika
+        memcpy(data, message->data, message->count);
+
+        // Usunięcie wiadomości z listy
+        list_remove(&received_list, count, source, tag);
+
+        return 0;
     }
 
-    // Bufor do przechowywania fragmentów i metadanych
-    char *buffer = malloc(512);  // maksymalny rozmiar fragmentu + metadane
 
-    int received = 0;  // ile bajtów danych otrzymaliśmy
-    int ile, z_ilu, fragment_tag, current_message_size;
-
-    while (received < count) {
-
-        // Odbieranie fragmentu
-        chrecv(MIMPI_get_read_desc(source, MIMPI_World_rank()), buffer, 512);
-
-        // Rozpakowywanie metadanych z bufora
-        memcpy(&ile, buffer, sizeof(int));
-        memcpy(&z_ilu, buffer + sizeof(int), sizeof(int));
-        memcpy(&fragment_tag, buffer + sizeof(int) * 2, sizeof(int));
-        memcpy(&current_message_size, buffer + sizeof(int) * 3, sizeof(int));
+    while (true) {
+        // tak dlugo jak nie trafimy na wiadomość na którą czekamy od konkretnego nadawcy
+        // to czytamy dalej i inne wiadomości zapisujemy na później
+        int actual_read_message_size = 0;
+        int read_buffer_size = 496;
+        void* read_message = malloc(496); // ten bufor będzie się powiększał w razie potrzeby
 
 
-        // Zapisywanie danych z fragmentu do głównego bufora danych
-        printf("Kota5 %d %d %d\n", ile, z_ilu, current_message_size);
-        memcpy(data + received, buffer + sizeof(int) * 4, current_message_size);
-        received += current_message_size;  // aktualizacja liczby otrzymanych danych
+        // Bufor do przechowywania fragmentów i metadanych
+        void* buffer = malloc(512);  // maksymalny rozmiar fragmentu + metadane
+        int received = 0;  // ile bajtów danych otrzymaliśmy
+        int ile = 0, z_ilu = 1, fragment_tag, current_message_size;
 
+        while (ile < z_ilu) {
+            // Odbieranie fragmentu
+            chrecv(MIMPI_get_read_desc(source, MIMPI_World_rank()), buffer, 512);
+
+            // Rozpakowywanie metadanych z bufora
+            memcpy(&ile, buffer, sizeof(int));
+            memcpy(&z_ilu, buffer + sizeof(int), sizeof(int));
+            memcpy(&fragment_tag, buffer + sizeof(int) * 2, sizeof(int));
+            memcpy(&current_message_size, buffer + sizeof(int) * 3, sizeof(int));
+
+            // Zapisywanie danych z fragmentu do głównego bufora danych
+            // printf("Kota5 %d %d %d\n", ile, z_ilu, current_message_size);
+            memcpy(read_message + received, buffer + sizeof(int) * 4, current_message_size);
+            received += current_message_size;  // aktualizacja liczby otrzymanych danych
+
+            actual_read_message_size += current_message_size;
+
+            if (ile < z_ilu) { // Jak to nie koniec czytania to powiększamy bufor
+                read_buffer_size += 496;
+                read_message = realloc(read_message, read_buffer_size);
+            }
+        }
+
+        // W ty mmiejscu oderbaliśmy całą jedną wiadomość
+        if (tag == fragment_tag && actual_read_message_size == count) {
+            // Przepisanie danych do bufora użytkownika
+            memcpy(data, read_message, actual_read_message_size);
+
+            free(buffer);  // Zwalnianie tymczasowego bufora
+            free(read_message);
+            break;
+        } else { // zapisujemy dane na później
+            list_add(&received_list, read_message, actual_read_message_size, source, fragment_tag);
+
+            free(buffer);
+            free(read_message);
+        }
     }
-
-    free(buffer);  // Zwalnianie tymczasowego bufora
 
 
     return 0;

@@ -1,41 +1,73 @@
+#include <assert.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
 #include "mimpi.h"
-#include "examples/mimpi_err.h"
 
-char data[21372137];
+#define NS_PER_1_MS 1 ## 000 ## 000
 
 int main(int argc, char **argv)
 {
-
     MIMPI_Init(false);
 
     int const world_rank = MIMPI_World_rank();
 
-    memset(data, world_rank == 0 ? 42 : 7, sizeof(data));
-
     int const tag = 17;
 
-
-
-
+    char number = 42;
     if (world_rank == 0) {
-
-        ASSERT_MIMPI_OK(MIMPI_Send(data, sizeof(data), 1, tag));
-        for (int i = 0; i < sizeof(data); i += 789) {
-            assert(data[789] == 42);
-        }
-    }
-    else if (world_rank == 1)
-    {
-        ASSERT_MIMPI_OK(MIMPI_Recv(data, sizeof(data), 0, tag));
-        for (int i = 0; i < sizeof(data); i += 789) {
-            assert(data[789] == 42);
-        }
+        struct timespec ts = (struct timespec){.tv_sec = 0, .tv_nsec = NS_PER_1_MS};
+        int res;
+        do {
+            res = nanosleep(&ts, &ts);
+        } while (res && errno == EINTR);
+    } else if (world_rank == 1) {
+        assert(MIMPI_Recv(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
+        assert(MIMPI_Send(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
+        printf("Process 1 received number %d from process 0\n", number);
     }
 
-
+    // Process with rank 0 finishes before rank 1 gets its message.
     MIMPI_Finalize();
     return 0;
 }
+
+
+
+
+//#include "mimpi.h"
+//#include "examples/mimpi_err.h"
+//
+//int main(int argc, char **argv)
+//{
+//    MIMPI_Init(false);
+//
+//    int const world_rank = MIMPI_World_rank();
+////    int const tag = 17;
+//
+//    char number;
+//    if (world_rank == 0)
+//    {
+//        number = 42;
+//        ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, 1, 1));
+//        ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, 1, 2));
+//        ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, 1, 3));
+//    }
+//    else if (world_rank == 1)
+//    {
+//        ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, 0, 3));
+//        printf("Process 1 received number %d with tag %d\n", number, 3);
+//        ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, 0, 1));
+//        printf("Process 1 received number %d with tag %d\n", number, 1);
+//        ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, 0, 2));
+//        printf("Process 1 received number %d with tag %d\n", number, 2);
+//    }
+//
+//    MIMPI_Finalize();
+//    return 0;
+//}
 
 
 /*
@@ -46,6 +78,8 @@ int main(int argc, char **argv)
  ./send_recv
 
  bash ./test
+
+ valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./mimpirun 2 ./main
 
 
 
