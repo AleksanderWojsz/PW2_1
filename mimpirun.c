@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
 
     // dla bezpieczenstwa zajmujemy 20 pierwszych deskryptorow, które zwolnimy po stworzeniu docelowych pipeów
     int foo[20][2];
-
+    int pom_desc[5][2];
 
     int k = 0;
     do {
@@ -34,6 +34,10 @@ int main(int argc, char *argv[]) {
     if (foo[k - 1][1] == 20) {
         close(foo[k - 1][1]);
         foo[k - 1][1] = -1;
+    }
+
+    for (int i = 0; i < 5; i++) {
+        channel(pom_desc[i]);
     }
 
     // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory
@@ -53,7 +57,20 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    pid_t pids[n]; // pidy dzieci
+    // W pipe 20-21 będą współdzielone dane pomiędzy wszystkimi procesami
+    // Na razie tablica 0-1 ktory proces jest w srodku a ktory nie, i licznik ile procesow jest w srodku
+
+
+
+    int active[n + 1];
+    for (int i = 0; i < n + 1; i++) {
+        active[i] = 0;
+    }
+
+    write(21, active, sizeof(int) * (n + 1));
+
+
+    pid_t pids[n]; // pid'y dzieci
     for (int i = 0; i < n; i++) {
 
         pids[i] = fork();
@@ -73,18 +90,33 @@ int main(int argc, char *argv[]) {
         }
     }
 
+
+
+
+    // zamykanie deskryptorow rodzica
+    for (int i = 0; i < 5; i++) {
+        close(pom_desc[i][0]);
+        close(pom_desc[i][1]);
+    }
+
+
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            close(desc[i][j][0]);
+            close(desc[i][j][1]);
+        }
+    }
+
     for (int i = 0; i < n; i++) {
         waitpid(pids[i], NULL, 0); // Czekanie na zakonczenie wszystkich dzieci
     }
 
-
-
-//    print_open_descriptors();
 //    for (int i = 0; i < n; i++) {
 //        for (int j = 0; j < n; j++) {
 //            printf("%d -> %d %d %d \n", i, j, desc[i][j][0], desc[i][j][1]);
 //        }
 //    }
+//    print_open_descriptors();
 
 
     return 0;

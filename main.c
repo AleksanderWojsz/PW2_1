@@ -1,28 +1,49 @@
-#include <stdio.h>
 #include "mimpi.h"
-#include "moja.h"
+#include "examples/mimpi_err.h"
 
-int main() {
-//    printf("Moja ranga to %d, rozmiar świata to %d\n", MIMPI_World_rank(), MIMPI_World_size());
+char data[21372137];
 
-    int data = 0;
-    if (MIMPI_World_rank() == 0) {
-        data = 42;
-        MIMPI_Send(&data, 1, 1, 0);
-    } else if (MIMPI_World_rank() == 1) {
-        MIMPI_Recv(&data, 1, 0, 0);
-        printf("Otrzymałem %d\n", data);
+int main(int argc, char **argv)
+{
+
+    MIMPI_Init(false);
+
+    int const world_rank = MIMPI_World_rank();
+
+    memset(data, world_rank == 0 ? 42 : 7, sizeof(data));
+
+    int const tag = 17;
+
+
+
+
+    if (world_rank == 0) {
+
+        ASSERT_MIMPI_OK(MIMPI_Send(data, sizeof(data), 1, tag));
+        for (int i = 0; i < sizeof(data); i += 789) {
+            assert(data[789] == 42);
+        }
+    }
+    else if (world_rank == 1)
+    {
+        ASSERT_MIMPI_OK(MIMPI_Recv(data, sizeof(data), 0, tag));
+        for (int i = 0; i < sizeof(data); i += 789) {
+            assert(data[789] == 42);
+        }
     }
 
+
+    MIMPI_Finalize();
     return 0;
 }
+
 
 /*
  make
  ./mimirun
 
  cd examples_build
- ./bad_rank
+ ./send_recv
 
  bash ./test
 
