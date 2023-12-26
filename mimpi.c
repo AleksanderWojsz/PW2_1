@@ -16,10 +16,6 @@
 Message* received_list = NULL;
 bool finished[16] = {false};
 
-int MIMPI_World_size();
-
-int MIMPI_World_rank();
-
 int check_arguments_correctness(int other_process_rank) {
     if (MIMPI_World_rank() == other_process_rank) {
         return MIMPI_ERROR_ATTEMPTED_SELF_OP;

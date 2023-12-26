@@ -33,16 +33,15 @@ void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
 
     // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory
     // https://pubs.opengroup.org/onlinepubs/009604599/functions/pipe.html
-    // Pipe'y pomiedzy każdymi dwoma procesami
-
-    for (int i = 0; i < n; i++) { // Tworzenie potokow
+    // Pipe'y pomiędzy każdymi dwoma procesami
+    for (int i = 0; i < n; i++) { // Tworzenie potoków
         for (int j = 0; j < n; j++) {
             channel(desc[i][j]);
         }
     }
 
     // Zamykanie deskryptorów do 19 włącznie
-    for (int i = 0; i < k; i++) { // Zwalnianie deskryptorow
+    for (int i = 0; i < k; i++) { // Zwalnianie deskryptorów
         close(foo[i][0]);
 
         if (foo[i][1] != -1) {
@@ -69,15 +68,15 @@ void close_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
 
 int main(int argc, char *argv[]) {
 
-    int n = atoi(argv[1]);   // Liczba procesow
-    char* program = argv[2]; // Sciezka do programu
+    int n = atoi(argv[1]);   // Liczba procesów
+    char* program = argv[2]; // Ścieżka do programu
 
     int pom_desc[POM_PIPES][2]; // 'POM_PIPES' pipeów do współdzielenie danych między wszystkimi procesami
-    int desc[n][n][2]; // [skad][dokad][0 - write, 1 - read]
+    int desc[n][n][2]; // [skąd][dokąd][0 - write, 1 - read]
 
     create_descriptors(n, desc, pom_desc);
 
-    // W pipe 20-21 będą współdzielone dane: tablica 0-1 ktory proces jest w srodku(1) a ktory nie(0), i licznik ile procesow jest w srodku
+    // W pipe 20-21 będą współdzielone dane: tablica 0-1 który proces jest w środku(1) a który nie(0), i licznik ile procesów jest w środku
     int active[n + 1];
     for (int i = 0; i < n; i++) {
         active[i] = 1;
