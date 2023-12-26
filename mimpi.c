@@ -60,13 +60,17 @@ void MIMPI_Init(bool enable_deadlock_detection) {
 
 }
 
+Message* received_list = NULL;
+bool finished[16] = {false};
+
+
 void MIMPI_Finalize() {
 
     notify_iam_out(); // TODO
 
     // wysylamy wszystkim wiadomosc z tagiem -1 oznaczajaca ze skonczylismy
     for (int i = 0; i < MIMPI_World_size(); i++) {
-        if (i != MIMPI_World_rank()) {
+        if (i != MIMPI_World_rank() && is_in_MPI_block(i) == true) {
             int message = 0;
             MIMPI_Send(&message, 1, i, -1);
         }
@@ -95,6 +99,8 @@ int MIMPI_World_rank() {
     return atoi(getenv("MIMPI_RANK")); // getenv zwraca string
 }
 
+int licznik = 0;
+
 MIMPI_Retcode MIMPI_Send(
     void const *data,
     int count,
@@ -102,8 +108,11 @@ MIMPI_Retcode MIMPI_Send(
     int tag
 ) {
 
+
+    licznik++;
     if (is_in_MPI_block(destination) == false) {
-        printf("Cel %d wyszedl juz z MPI\n", destination);
+        printf("%d\n", licznik);
+        printf("->Cel %d wyszedl juz z MPI\n", destination);
         return MIMPI_ERROR_REMOTE_FINISHED;
     }
 
@@ -138,8 +147,6 @@ MIMPI_Retcode MIMPI_Send(
     return 0;
 }
 
-Message* received_list = NULL;
-bool finished[16] = {false};
 
 MIMPI_Retcode MIMPI_Recv(
         void* data,
@@ -154,7 +161,7 @@ MIMPI_Retcode MIMPI_Recv(
     }
 
     // sprawdzamy czy już wcześniej nie odebraliśmy takiej wiadomości
-    Message *message = list_find(received_list, count, source, tag);
+    Message *message = list_find(received_list, count, source, tag); // list_find znajdzie też wiadomości z tagiem 0
     if (message != NULL) {
         // Przepisanie danych do bufora uzytkownika
         memcpy(data, message->data, message->count);
@@ -203,7 +210,7 @@ MIMPI_Retcode MIMPI_Recv(
         }
 
         // W ty mmiejscu odebraliśmy całą jedną wiadomość
-        if (tag == fragment_tag && actual_read_message_size == count) { // Jak wiadomosc pasuje to konczymy czytanie
+        if ((tag == fragment_tag || tag == 0) && actual_read_message_size == count) { // Jak wiadomosc pasuje to konczymy czytanie
             // Przepisanie danych do bufora użytkownika
             memcpy(data, read_message, actual_read_message_size);
 

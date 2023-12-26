@@ -7,22 +7,15 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <stdio.h>
-#include <dirent.h>
-#include <string.h>
 
 #define OVERWRITE 1
 
 
-
-
-
 int main(int argc, char *argv[]) {
 
-    int n = atoi(argv[1]);  // Liczba procesow
-    char* program = argv[2];  // Sciezka do programu
+    int n = atoi(argv[1]);   // Liczba procesow
+    char* program = argv[2]; // Sciezka do programu
 
-
-    // dla bezpieczenstwa zajmujemy 20 pierwszych deskryptorow, które zwolnimy po stworzeniu docelowych pipeów
     int foo[20][2];
     int pom_desc[5][2];
 
