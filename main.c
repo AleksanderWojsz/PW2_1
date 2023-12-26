@@ -1,3 +1,5 @@
+#include <stdbool.h>
+#include <stdio.h>
 #include "mimpi.h"
 #include "examples/mimpi_err.h"
 
@@ -6,25 +8,25 @@ int main(int argc, char **argv)
     MIMPI_Init(false);
 
     int const world_rank = MIMPI_World_rank();
-//    int const tag = 17;
+
+    int const tag = 17;
 
     char number;
     if (world_rank == 0)
     {
         number = 42;
-        ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, 1, 2));
-
+        ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, 1, tag));
     }
     else if (world_rank == 1)
     {
-        ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, 0, 0));
-        printf("Process 1 received number %d with tag %d\n", number, 0);
+        ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, 0, tag));
+        printf("Process 1 received number %d from process 0\n", number);
     }
 
     MIMPI_Finalize();
-
     return 0;
 }
+
 
 
 /*
@@ -38,6 +40,9 @@ int main(int argc, char **argv)
 
  valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./mimpirun 2 ./main
 
+ chmod +x test
+
+ chmod -R 777 ścieżka/do/folderu
 
 
 Procedury pomocnicze:

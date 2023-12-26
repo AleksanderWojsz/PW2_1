@@ -9,16 +9,13 @@
 #include <stdio.h>
 
 #define OVERWRITE 1
+#define POM_PIPES 5
 
+void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
 
-int main(int argc, char *argv[]) {
+    int foo[20][2]; // Do zajęcia aż do 19 deskryptora włącznie
 
-    int n = atoi(argv[1]);   // Liczba procesow
-    char* program = argv[2]; // Sciezka do programu
-
-    int foo[20][2];
-    int pom_desc[5][2];
-
+    // Zajmowanie do 19 deskryptora
     int k = 0;
     do {
         k++;
@@ -29,19 +26,22 @@ int main(int argc, char *argv[]) {
         foo[k - 1][1] = -1;
     }
 
-    for (int i = 0; i < 5; i++) {
+    // Zajmowanie pomocniczych 'POM_PIPES' pipeów
+    for (int i = 0; i < POM_PIPES; i++) {
         channel(pom_desc[i]);
     }
 
     // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory
     // https://pubs.opengroup.org/onlinepubs/009604599/functions/pipe.html
-    int desc[n][n][2]; // [skad][dokad][0 - write, 1 - read]
+    // Pipe'y pomiedzy każdymi dwoma procesami
+
     for (int i = 0; i < n; i++) { // Tworzenie potokow
         for (int j = 0; j < n; j++) {
             channel(desc[i][j]);
         }
     }
 
+    // Zamykanie deskryptorów do 19 włącznie
     for (int i = 0; i < k; i++) { // Zwalnianie deskryptorow
         close(foo[i][0]);
 
@@ -49,18 +49,40 @@ int main(int argc, char *argv[]) {
             close(foo[i][1]);
         }
     }
+}
 
-    // W pipe 20-21 będą współdzielone dane pomiędzy wszystkimi procesami
-    // Na razie tablica 0-1 ktory proces jest w srodku a ktory nie, i licznik ile procesow jest w srodku
+void close_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
+    // zamykanie 'POM_PIPES' pipe'ów
+    for (int i = 0; i < POM_PIPES; i++) {
+        close(pom_desc[i][0]);
+        close(pom_desc[i][1]);
+    }
 
+    // zamykanie pipe'ów między każdymi dwoma procesami
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            close(desc[i][j][0]);
+            close(desc[i][j][1]);
+        }
+    }
+}
 
+int main(int argc, char *argv[]) {
 
+    int n = atoi(argv[1]);   // Liczba procesow
+    char* program = argv[2]; // Sciezka do programu
+
+    int pom_desc[POM_PIPES][2]; // 'POM_PIPES' pipeów do współdzielenie danych między wszystkimi procesami
+    int desc[n][n][2]; // [skad][dokad][0 - write, 1 - read]
+
+    create_descriptors(n, desc, pom_desc);
+
+    // W pipe 20-21 będą współdzielone dane: tablica 0-1 ktory proces jest w srodku(1) a ktory nie(0), i licznik ile procesow jest w srodku
     int active[n + 1];
     for (int i = 0; i < n; i++) {
         active[i] = 1;
     }
     active[n] = n;
-
     write(21, active, sizeof(int) * (n + 1));
 
 
@@ -84,25 +106,11 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    close_descriptors(n, desc, pom_desc);
 
-
-
-    // zamykanie deskryptorow rodzica
-    for (int i = 0; i < 5; i++) {
-        close(pom_desc[i][0]);
-        close(pom_desc[i][1]);
-    }
-
-
+    // Czekanie na zakończenie wszystkich dzieci
     for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            close(desc[i][j][0]);
-            close(desc[i][j][1]);
-        }
-    }
-
-    for (int i = 0; i < n; i++) {
-        waitpid(pids[i], NULL, 0); // Czekanie na zakonczenie wszystkich dzieci
+        waitpid(pids[i], NULL, 0);
     }
 
 //    for (int i = 0; i < n; i++) {
@@ -111,7 +119,6 @@ int main(int argc, char *argv[]) {
 //        }
 //    }
 //    print_open_descriptors();
-
 
     return 0;
 }
