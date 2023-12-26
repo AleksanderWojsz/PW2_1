@@ -13,14 +13,6 @@ int MIMPI_World_size();
 
 int MIMPI_World_rank();
 
-void notify_iam_in() {
-    int is_active[MIMPI_World_size() + 1];
-    chrecv(20, is_active, sizeof(int) * (MIMPI_World_size() + 1));
-    is_active[MIMPI_World_rank()] = 1;
-    is_active[MIMPI_World_size()]++;
-    chsend(21, is_active, sizeof(int) * (MIMPI_World_size() + 1));
-}
-
 void notify_iam_out() {
     int is_active[MIMPI_World_size() + 1];
     chrecv(20, is_active, sizeof(int) * (MIMPI_World_size() + 1));
@@ -66,13 +58,19 @@ int MIMPI_get_write_desc(int src, int dest) {
 void MIMPI_Init(bool enable_deadlock_detection) {
     channels_init();
 
-    notify_iam_in();
-
 }
 
 void MIMPI_Finalize() {
 
     notify_iam_out(); // TODO
+
+    // wysylamy wszystkim wiadomosc z tagiem -1 oznaczajaca ze skonczylismy
+    for (int i = 0; i < MIMPI_World_size(); i++) {
+        if (i != MIMPI_World_rank()) {
+            int message = 0;
+            MIMPI_Send(&message, 1, i, -1);
+        }
+    }
 
     // zamykanie wszystkich deskryptorow
     for (int i = 20; i < 30; i++) {
@@ -104,6 +102,10 @@ MIMPI_Retcode MIMPI_Send(
     int tag
 ) {
 
+    if (is_in_MPI_block(destination) == false) {
+        printf("Cel %d wyszedl juz z MPI\n", destination);
+        return MIMPI_ERROR_REMOTE_FINISHED;
+    }
 
     // dzielimy wiadomosc na części rozmiaru ile + z_ilu + tag + current_message_size + wiadomosc = 512B
 
@@ -137,6 +139,7 @@ MIMPI_Retcode MIMPI_Send(
 }
 
 Message* received_list = NULL;
+bool finished[16] = {false};
 
 MIMPI_Retcode MIMPI_Recv(
         void* data,
@@ -144,8 +147,13 @@ MIMPI_Retcode MIMPI_Recv(
         int source,
         int tag
 ) {
-    // sprawdzamy czy już wcześniej nie odebraliśmy takiej wiadomości
 
+    if (finished[source] == true) {
+        printf("zrodlo %d skonczylo \n", source);
+        return MIMPI_ERROR_REMOTE_FINISHED;
+    }
+
+    // sprawdzamy czy już wcześniej nie odebraliśmy takiej wiadomości
     Message *message = list_find(received_list, count, source, tag);
     if (message != NULL) {
         // Przepisanie danych do bufora uzytkownika
@@ -194,16 +202,28 @@ MIMPI_Retcode MIMPI_Recv(
             }
         }
 
-        // W ty mmiejscu oderbaliśmy całą jedną wiadomość
-        if (tag == fragment_tag && actual_read_message_size == count) {
+        // W ty mmiejscu odebraliśmy całą jedną wiadomość
+        if (tag == fragment_tag && actual_read_message_size == count) { // Jak wiadomosc pasuje to konczymy czytanie
             // Przepisanie danych do bufora użytkownika
             memcpy(data, read_message, actual_read_message_size);
 
             free(buffer);  // Zwalnianie tymczasowego bufora
             free(read_message);
             break;
-        } else { // zapisujemy dane na później
-            list_add(&received_list, read_message, actual_read_message_size, source, fragment_tag);
+        } else { // zapisujemy dane na później i czytamy dalej
+
+            if (fragment_tag < 0) { // wiadomosc specjalna
+                if (fragment_tag == -1) { // source skonczyl
+                    finished[source] = true;
+                    printf("Zrodlo %d skonczylo\n", source);
+                    free(buffer);
+                    free(read_message);
+                    return MIMPI_ERROR_REMOTE_FINISHED;
+                }
+            } else { // TODO wiadomosc z tagiem 0
+                list_add(&received_list, read_message, actual_read_message_size, source, fragment_tag);
+            }
+
 
             free(buffer);
             free(read_message);

@@ -36,40 +36,6 @@ int main(int argc, char **argv)
 
 
 
-
-//#include "mimpi.h"
-//#include "examples/mimpi_err.h"
-//
-//int main(int argc, char **argv)
-//{
-//    MIMPI_Init(false);
-//
-//    int const world_rank = MIMPI_World_rank();
-////    int const tag = 17;
-//
-//    char number;
-//    if (world_rank == 0)
-//    {
-//        number = 42;
-//        ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, 1, 1));
-//        ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, 1, 2));
-//        ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, 1, 3));
-//    }
-//    else if (world_rank == 1)
-//    {
-//        ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, 0, 3));
-//        printf("Process 1 received number %d with tag %d\n", number, 3);
-//        ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, 0, 1));
-//        printf("Process 1 received number %d with tag %d\n", number, 1);
-//        ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, 0, 2));
-//        printf("Process 1 received number %d with tag %d\n", number, 2);
-//    }
-//
-//    MIMPI_Finalize();
-//    return 0;
-//}
-
-
 /*
  make
  ./mimirun

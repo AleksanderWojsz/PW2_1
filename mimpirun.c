@@ -63,9 +63,10 @@ int main(int argc, char *argv[]) {
 
 
     int active[n + 1];
-    for (int i = 0; i < n + 1; i++) {
-        active[i] = 0;
+    for (int i = 0; i < n; i++) {
+        active[i] = 1;
     }
+    active[n] = n;
 
     write(21, active, sizeof(int) * (n + 1));
 
