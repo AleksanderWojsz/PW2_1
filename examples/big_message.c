@@ -17,7 +17,7 @@ int main(int argc, char **argv)
     int const tag = 17;
 
     if (world_rank == 0) {
-        
+
         ASSERT_MIMPI_OK(MIMPI_Send(data, sizeof(data), 1, tag));
         for (int i = 0; i < sizeof(data); i += 789) {
             assert(data[789] == 42);

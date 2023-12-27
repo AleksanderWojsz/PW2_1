@@ -68,7 +68,7 @@ void MIMPI_Finalize() {
     // wysyłamy wszystkim wiadomość z tagiem OUT_OF_MPI_BLOCK (-1) oznaczającą, że skończyliśmy
     for (int i = 0; i < MIMPI_World_size(); i++) {
         if (i != MIMPI_World_rank() && is_in_MPI_block(i) == true) {
-            int message = 0; // TODO to nie powinno miec rozmiaru 512?
+            int message = 0; // TODO to nie powinno miec rozmiaru 512? Bo ktoś czeka na dowolnie długą wiadomość
             MIMPI_Send(&message, 1, i, OUT_OF_MPI_BLOCK);
         }
     }
@@ -118,6 +118,8 @@ MIMPI_Retcode MIMPI_Send(
     // tworzenie wiadomosci
     for (int i = 0; i < liczba_czesci; i++) {
 
+        printf("Wysylam czesc %d z %d\n", i + 1, liczba_czesci);
+
         int current_message_size = max_message_size;
         if (i == liczba_czesci - 1) { // ostatnia część wiadomości
             current_message_size = count - (liczba_czesci - 1) * max_message_size;
@@ -147,15 +149,12 @@ MIMPI_Retcode MIMPI_Recv(
         int tag
 ) {
 
-
-
     if (check_arguments_correctness(source) != 0) {
         return check_arguments_correctness(source);
     }
     else if (finished[source] == true) { // Potrzebne jakby ktoś kilka razy z rzędu wywołał recv
         return MIMPI_ERROR_REMOTE_FINISHED;
     }
-
 
     // Sprawdzamy, czy już wcześniej nie odebraliśmy takiej wiadomości
     // list_find znajdzie też wiadomości z tagiem 0
@@ -171,7 +170,6 @@ MIMPI_Retcode MIMPI_Recv(
     while (true) {
         int read_buffer_size = 496;
         void* read_message = malloc(496); // Ten bufor będzie się powiększał w razie potrzeby
-
 
         void* buffer = malloc(512);  // Bufor do przechowywania fragmentów i metadanych
         int received = 0;  // Ile bajtów danych już otrzymaliśmy

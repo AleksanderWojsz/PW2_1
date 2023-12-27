@@ -11,6 +11,10 @@
 #define OVERWRITE 1
 #define POM_PIPES 5
 
+// https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory
+// https://pubs.opengroup.org/onlinepubs/009604599/functions/pipe.html
+// https://stackoverflow.com/questions/29852077/will-a-process-writing-to-a-pipe-block-if-the-pipe-is-full#comment47830197_29852077 - write do pełnego pipe'a jest blokujący, read z pustego też
+
 void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
 
     int foo[20][2]; // Do zajęcia aż do 19 deskryptora włącznie
@@ -31,8 +35,6 @@ void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
         channel(pom_desc[i]);
     }
 
-    // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory
-    // https://pubs.opengroup.org/onlinepubs/009604599/functions/pipe.html
     // Pipe'y pomiędzy każdymi dwoma procesami
     for (int i = 0; i < n; i++) { // Tworzenie potoków
         for (int j = 0; j < n; j++) {
