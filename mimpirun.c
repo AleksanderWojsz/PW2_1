@@ -39,6 +39,7 @@ void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
     for (int i = 0; i < n; i++) { // Tworzenie potoków
         for (int j = 0; j < n; j++) {
             channel(desc[i][j]);
+//            printf("%d -> %d %d %d \n", i, j, desc[i][j][1], desc[i][j][0]);
         }
     }
 

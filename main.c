@@ -1,10 +1,40 @@
+//#include <stdbool.h>
+//#include <stdio.h>
+//#include "mimpi.h"
+//#include "examples/mimpi_err.h"
+//
+//int main(int argc, char **argv)
+//{
+//    MIMPI_Init(false);
+//
+//    int const world_rank = MIMPI_World_rank();
+//
+//    int const tag = 17;
+//
+//    char number;
+//    if (world_rank == 0)
+//    {
+//        number = 42;
+//        ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, 1, tag));
+//    }
+//    else if (world_rank == 1)
+//    {
+//        ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, 0, tag));
+//        printf("Process 1 received number %d from process 0\n", number);
+//    }
+//
+//    MIMPI_Finalize();
+//    return 0;
+//}
+
+
 #include <stdbool.h>
 #include <stdio.h>
 #include "mimpi.h"
 #include "examples/mimpi_err.h"
 
 //char data[21372137];
-char data[21372137];
+char data[1000];
 
 int main(int argc, char **argv)
 {
@@ -14,13 +44,13 @@ int main(int argc, char **argv)
     memset(data, 42, sizeof(data));
 
     if (world_rank == 0) {
-        MIMPI_Send(data, sizeof(data), 1, 1);
-        printf("skonczylem\n");
+        MIMPI_Send(data, sizeof(data), 1, 999);
     }
     else if (world_rank == 1)
     {
-        sleep(1000); // zeby wysylanie sie zaczelo
+        MIMPI_Send(data, sizeof(data), 0, 999);
     }
+
 
     MIMPI_Finalize();
     return 0;

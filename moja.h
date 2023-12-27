@@ -61,7 +61,8 @@ void list_add(Message **head, void const *data, int count, int source, int tag) 
 Message *list_find(Message *head, int count, int source, int tag) {
     Message *current = head;
     while (current != NULL) {
-        if (current->count == count && current->source == source && (current->tag == tag || current->tag == 0)) {
+        if ((current->count == count && current->source == source && (current->tag == tag || current->tag == 0)) ||
+                (current->source == source && current->tag < 0)) { // Wiadomość specjalna od konkretnego nadawcy
             return current;
         }
         current = current->next;
@@ -91,6 +92,23 @@ void list_remove(Message **head, int count, int source, int tag) {
     }
 }
 
+
+// Znajdowanie pierwszego elementu o wskazanym count, source, tag (lub tag == 0)
+Message *list_find_with_last(Message *head, int count, int source, int tag, Message **last) {
+    Message *current = head;
+    while (current != NULL) {
+        if ((current->count == count && current->source == source && (current->tag == tag || current->tag == 0)) ||
+            (current->source == source && current->tag < 0)) { // Wiadomość specjalna od konkretnego nadawcy
+
+            *last = current;
+            return current;
+        }
+        current = current->next;
+    }
+
+    *last = NULL;
+    return NULL; // Nie znaleziono elementu
+}
 
 
 void print_open_descriptors(void)
