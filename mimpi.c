@@ -18,6 +18,8 @@ Message* received_list = NULL;
 bool finished[16] = {false};
 
 // Wszystkie wiadomości mają rozmiar 512B, jak wiadomość jest za mała to jest dopełniana zerami
+// Zakładam że jeśli podczas wysyłania bardzo długiej wiadomości odbiorca się skończy, to przestajemy przesyłać wiadomość
+// żeby nie zawiesić się na pipe
 
 int check_arguments_correctness(int other_process_rank) {
     if (MIMPI_World_rank() == other_process_rank) {
@@ -71,6 +73,7 @@ int waiting_source = -10;
 int waiting_tag = -10;
 
 void *read_messages_from_source(void *args) {
+
     int source = *((int *)args);
 
     // Czytamy wiadomosci od konkretnego procesu i zapisujemy je na liscie
@@ -82,7 +85,6 @@ void *read_messages_from_source(void *args) {
         int received = 0;  // Ile bajtów danych już otrzymaliśmy
         int ile = 0, z_ilu = 1, fragment_tag, current_message_size;
 
-//        printf("Jestem %d czekam na wiadomosc od %d z pipe'a %d\n", MIMPI_World_rank(), source, MIMPI_get_read_desc(source, MIMPI_World_rank()));
         while (ile < z_ilu) {
 
             // Odbieranie fragmentu
@@ -106,14 +108,12 @@ void *read_messages_from_source(void *args) {
 
         // W tym miejscu mamy już całą jedną wiadomość
 
-//        printf("Jestem %d dostalem wiadomosc od %d, tag %d \n", MIMPI_World_rank(), source, fragment_tag);
-
         pthread_mutex_lock(&mutex_pipes);
         list_add(&received_list, read_message, received, source, fragment_tag);
 
         // Zapisujemy wszystkie wiadomości, a jak rodzic czeka na daną wiadomość
         // lub wiadomość to dowolna specjalna wiadomość od tego nadawcy to budzimy rodzica
-        if ((waiting_count == received && waiting_source == source && (waiting_tag == fragment_tag || fragment_tag == 0)) ||
+        if ((waiting_count == received && waiting_source == source && (waiting_tag == fragment_tag || waiting_tag == 0)) ||
                 (waiting_source == source && fragment_tag < 0)) {
             waiting_count = -10;
             waiting_source = -10;
@@ -126,7 +126,6 @@ void *read_messages_from_source(void *args) {
         free(read_message);
 
         if (fragment_tag == -1) { // Jak nie będzie już więcej wiadomości to kończymy
-//            printf("Koncze watek %d\n", MIMPI_World_rank());
             break;
         }
     }
@@ -148,11 +147,9 @@ void MIMPI_Init(bool enable_deadlock_detection) {
     // Tworzenie po jednym wątku na każdy pipe
     for (int i = 0; i < MIMPI_World_size(); i++) {
         if (i != MIMPI_World_rank()) {
-            pthread_t thread;
             int *source = malloc(sizeof(int));
             *source = i;
-            pthread_create(&thread, NULL, read_messages_from_source, source);
-            threads[i] = thread;
+            pthread_create(&threads[i], NULL, read_messages_from_source, source);
         }
     }
 }
@@ -164,27 +161,28 @@ void MIMPI_Finalize() {
     // Wysyłamy wiadomości z tagiem -1 do samych siebie przez wszystkie pipe'y, żeby nasze wątki wiedziały, że mają się zakończyć
     for (int i = 0; i < MIMPI_World_size(); i++) {
         if (i != MIMPI_World_rank()) {
-            int foo = 1;
+            int foo1 = 1;
             int tag = -1;
             int message_size = sizeof(int) * META_INFO_SIZE + sizeof(int);
-            void *message = malloc(message_size);
-            memcpy(message + sizeof(int) * 0, &foo, sizeof(int));
-            memcpy(message + sizeof(int) * 1, &foo, sizeof(int));
+            void *message = malloc(512);
+            memset(message, 0, 512);
+            memcpy(message + sizeof(int) * 0, &foo1, sizeof(int));
+            memcpy(message + sizeof(int) * 1, &foo1, sizeof(int));
             memcpy(message + sizeof(int) * 2, &tag, sizeof(int));
             memcpy(message + sizeof(int) * 3, &message_size, sizeof(int));
-            memcpy(message + sizeof(int) * 4, &foo, sizeof(int));
+            memcpy(message + sizeof(int) * 4, &foo1, sizeof(int));
 
-//            printf("Wyslalem -1 do %d (deskryptor zapisu %d)\n", MIMPI_World_rank(), MIMPI_get_write_desc(i, MIMPI_World_rank()));
-            chsend(MIMPI_get_write_desc(i, MIMPI_World_rank()), message, message_size);
+            chsend(MIMPI_get_write_desc(i, MIMPI_World_rank()), message, 512);
 
             free(message);
         }
     }
 
-//    printf("Czekam na koniec wątku, jestem %d \n", MIMPI_World_rank());
-    // Czekanie na zakończenie wszystkich wątków
-    for (int i = 0; i < MIMPI_World_size() - 1; i++) {
-        pthread_join(threads[i], NULL);
+//     Czekanie na zakończenie wszystkich wątków
+    for (int i = 0; i < MIMPI_World_size(); i++) {
+        if (i != MIMPI_World_rank()) {
+            pthread_join(threads[i], NULL);
+        }
     }
 
     // TODO czyszczenie listy otrzymanych wiadomości
@@ -192,7 +190,7 @@ void MIMPI_Finalize() {
     // wysyłamy wszystkim innym wiadomość z tagiem OUT_OF_MPI_BLOCK (-1) oznaczającą, że skończyliśmy
     for (int i = 0; i < MIMPI_World_size(); i++) {
         if (i != MIMPI_World_rank() && is_in_MPI_block(i) == true) {
-            int message = 0; // TODO to nie powinno miec rozmiaru 512? Bo ktoś czeka na dowolnie długą wiadomość
+            int message = 0;
             MIMPI_Send(&message, 1, i, OUT_OF_MPI_BLOCK);
         }
     }
@@ -224,10 +222,10 @@ int MIMPI_World_rank() {
 }
 
 MIMPI_Retcode MIMPI_Send(
-    void const *data,
-    int count,
-    int destination,
-    int tag
+        void const *data,
+        int count,
+        int destination,
+        int tag
 ) {
 
     if (check_arguments_correctness(destination) != 0) {
@@ -245,14 +243,20 @@ MIMPI_Retcode MIMPI_Send(
     // tworzenie wiadomosci
     for (int i = 0; i < liczba_czesci; i++) {
 
-//        printf("Wysylam czesc %d z %d\n", i + 1, liczba_czesci);
+        // Na wypadek, gdyby odbiorca się zakończył przy wysłaniu długiej wiadomości
+        if (is_in_MPI_block(destination) == false) {
+            return MIMPI_ERROR_REMOTE_FINISHED;
+        }
+//        printf("Wysylam czesc %d z %d, jestem %d \n", i + 1, liczba_czesci, MIMPI_World_rank());
 
         int current_message_size = max_message_size;
         if (i == liczba_czesci - 1) { // ostatnia część wiadomości
             current_message_size = count - (liczba_czesci - 1) * max_message_size;
         }
 
-        void *message = malloc(current_message_size + sizeof(int) * META_INFO_SIZE);
+        void *message = malloc(512);
+        memset(message, 0, 512);
+
         memcpy(message + sizeof(int) * 0, &nr_czesci, sizeof(int));
         memcpy(message + sizeof(int) * 1, &liczba_czesci, sizeof(int));
         memcpy(message + sizeof(int) * 2, &tag, sizeof(int));
@@ -260,7 +264,7 @@ MIMPI_Retcode MIMPI_Send(
         memcpy(message + sizeof(int) * 4, data + i * max_message_size, current_message_size);
 
         // Wysyłanie wiadomości
-        chsend(MIMPI_get_write_desc(MIMPI_World_rank(), destination), message, current_message_size + sizeof(int) * META_INFO_SIZE);
+        chsend(MIMPI_get_write_desc(MIMPI_World_rank(), destination), message, 512);
         nr_czesci++;
         free(message);
     }
@@ -296,6 +300,8 @@ MIMPI_Retcode MIMPI_Recv(
         if (message->tag < 0) { // Wiadomość specjalna
             if (message->tag == -1) {
                 finished[source] = true;
+                list_remove(&received_list, count, source, tag); // Usunięcie wiadomości z listy
+                pthread_mutex_unlock(&mutex_pipes);
                 return MIMPI_ERROR_REMOTE_FINISHED;
             } else {
                 assert(0 == 1); // Nieobsłużona wiadomość specjalna
@@ -323,6 +329,8 @@ MIMPI_Retcode MIMPI_Recv(
     if (message->tag < 0) { // Wiadomość specjalna
         if (message->tag == -1) {
             finished[source] = true;
+            list_remove(&received_list, count, source, tag); // Usunięcie wiadomości z listy
+            pthread_mutex_unlock(&mutex_pipes);
             return MIMPI_ERROR_REMOTE_FINISHED;
         } else {
             assert(0 == 1); // Nieobsłużona wiadomość specjalna
@@ -342,19 +350,19 @@ MIMPI_Retcode MIMPI_Barrier() {
 }
 
 MIMPI_Retcode MIMPI_Bcast(
-    void *data,
-    int count,
-    int root
+        void *data,
+        int count,
+        int root
 ) {
     TODO
 }
 
 MIMPI_Retcode MIMPI_Reduce(
-    void const *send_data,
-    void *recv_data,
-    int count,
-    MIMPI_Op op,
-    int root
+        void const *send_data,
+        void *recv_data,
+        int count,
+        MIMPI_Op op,
+        int root
 ) {
     TODO
 }

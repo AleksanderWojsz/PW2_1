@@ -57,11 +57,11 @@ void list_add(Message **head, void const *data, int count, int source, int tag) 
     }
 }
 
-// Znajdowanie pierwszego elementu o wskazanym count, source, tag (lub tag == 0)
+// Znajdowanie pierwszego elementu o wskazanym count, source, tag (lub dowolny tak jak nasz tag == 0)
 Message *list_find(Message *head, int count, int source, int tag) {
     Message *current = head;
     while (current != NULL) {
-        if ((current->count == count && current->source == source && (current->tag == tag || current->tag == 0)) ||
+        if ((current->count == count && current->source == source && (current->tag == tag || tag == 0)) ||
                 (current->source == source && current->tag < 0)) { // Wiadomość specjalna od konkretnego nadawcy
             return current;
         }
