@@ -366,50 +366,82 @@ int get_barrier_write_desc(int rank) {
     return get_barrier_read_desc(rank) + 1;
 }
 
+int find_parent(int root) {
+    int i = world_size - root;
+    int n = world_size;
+    int w = world_rank;
+
+    return ((((w + i) % n) - 1) / 2 + n - i) % n;
+}
+
+void children_wake_up(int w, int i, int n, void* message) {
+    // budzimy dzieci
+    if (2 * ((w + i) % n) + 1 < n) { // Jak mamy lewe dziecko
+        int l = (2 * w + i + 1) % n;
+        chsend(get_barrier_write_desc(l), message, 512); // Wysyłamy lewemu dziecku
+    }
+    if (2 * ((w + i) % n) + 2 < n) {
+        int p = (2 * w + i + 2) % n;
+        chsend(get_barrier_write_desc(p), message, 512);
+    }
+}
+
+
+
 MIMPI_Retcode MIMPI_Barrier() {
+    void* message = malloc(512);
+    memset(message, 0, 512);
+
+    return MIMPI_Bcast(message, 512, 0);
+}
+
+MIMPI_Retcode MIMPI_Bcast(
+        void *data,
+        int count,
+        int root
+) {
+
+    if (world_size == 1) {
+        return MIMPI_SUCCESS;
+    }
 
     void* buffer = malloc(512);
     void* message = malloc(512);
+    memset(message, 0, 512);
+
+    int i = world_size - root;
+    int n = world_size;
+    int w = world_rank;
 
     // Czekanie aż wszyscy się zbiorą
 
-    if (world_rank == 0) { // jesteśmy korzeniem
+    if (world_rank == root) { // jesteśmy korzeniem
         chrecv(get_barrier_read_desc(world_rank), buffer, 512); // Czekamy na dowolną wiadomość
-    }
-    else if (world_rank * 2 + 1 < world_size || world_rank * 2 + 2 < world_size) { // jesteśmy rodzicem niekorzeniem
-        chrecv(get_barrier_read_desc(world_rank), buffer, 512);
-        if (world_rank * 2 + 2 < world_size) { // Jak mamy prawe dziecko to czekamy na drugą wiadomość
+        if (2 * ((w +i) % n) + 2 < world_size) { // Jak mamy prawe dziecko to czekamy na drugą wiadomość
             chrecv(get_barrier_read_desc(world_rank), buffer, 512);
         }
-
-        chsend(get_barrier_write_desc((world_rank - 1) / 2), message, 512); // wysyłamy wiadomość rodzicowi
+    }
+    else if (2 * ((w +i) % n) + 1 < world_size) { // jesteśmy rodzicem niekorzeniem
+        chrecv(get_barrier_read_desc(world_rank), buffer, 512);
+        if (2 * ((w +i) % n) + 2 < world_size) { // Jak mamy prawe dziecko to czekamy na drugą wiadomość
+            chrecv(get_barrier_read_desc(world_rank), buffer, 512);
+        }
+        chsend(get_barrier_write_desc(find_parent(root)), message, 512); // wysyłamy wiadomość rodzicowi
     }
     else { // jesteśmy liściem
-        chsend(get_barrier_write_desc((world_rank - 1) / 2), message, 512); // wysyłamy wiadomość rodzicowi
+        chsend(get_barrier_write_desc(find_parent(root)), message, 512); // wysyłamy wiadomość rodzicowi
     }
 
     // Czekanie na obudzenie
 
-    if (world_rank == 0) { // jesteśmy korzeniem
-        // budzimy dzieci
-        if (2 * world_rank + 1 < world_size) { // Jak mamy lewe dziecko
-            chsend(get_barrier_write_desc(2 * world_rank + 1), message, 512);
-        }
-        if (2 * world_rank + 2 < world_size) {
-            chsend(get_barrier_write_desc(2 * world_rank + 2), message, 512);
-        }
+    if (world_rank == root) { // jesteśmy korzeniem
+        children_wake_up(w, i, n, message);
     }
-    else if (world_rank * 2 + 1 < world_size || world_rank * 2 + 2 < world_size) { // jesteśmy rodzicem niekorzeniem
+    else if (2 * ((w +i) % n) + 1 < world_size)  { // jesteśmy rodzicem niekorzeniem
         // czekamy na wiadomosc od rodzica
         chrecv(get_barrier_read_desc(world_rank), buffer, 512);
 
-        // budzimy dzieci
-        if (2 * world_rank + 1 < world_size) { // Jak mamy lewe dziecko
-            chsend(get_barrier_write_desc(2 * world_rank + 1), message, 512);
-        }
-        if (2 * world_rank + 2 < world_size) {
-            chsend(get_barrier_write_desc(2 * world_rank + 2), message, 512);
-        }
+        children_wake_up(w, i, n, message);
     }
     else { // jesteśmy liściem
         // czekamy na wiadomosc od rodzica
@@ -420,14 +452,6 @@ MIMPI_Retcode MIMPI_Barrier() {
     free(message);
 
     return MIMPI_SUCCESS;
-}
-
-MIMPI_Retcode MIMPI_Bcast(
-        void *data,
-        int count,
-        int root
-) {
-    TODO
 }
 
 MIMPI_Retcode MIMPI_Reduce(

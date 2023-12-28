@@ -10,7 +10,7 @@
 int main(int argc, char **argv)
 {
     MIMPI_Init(false);
-    printf("beforee\n");
+    printf("before\n");
     fflush(stdout);
     const char *delay = getenv("DELAY");
     if (delay)
@@ -21,7 +21,7 @@ int main(int argc, char **argv)
     ASSERT_MIMPI_OK(MIMPI_Barrier());
     int res = unsetenv(WRITE_VAR);
     assert(res == 0);
-    printf("afterr\n");
+    printf("after\n");
     MIMPI_Finalize();
     return 0;
 }
