@@ -1,24 +1,27 @@
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
 #include "mimpi.h"
 #include "examples/mimpi_err.h"
+
+#define WRITE_VAR "CHANNELS_WRITE_DELAY"
 
 int main(int argc, char **argv)
 {
     MIMPI_Init(false);
-    int const process_rank = MIMPI_World_rank();
-    int const size_of_cluster = MIMPI_World_size();
-
-    for (int i = 0; i < size_of_cluster; i++)
+    printf("beforee\n");
+    fflush(stdout);
+    const char *delay = getenv("DELAY");
+    if (delay)
     {
-        if (i == process_rank)
-        {
-            printf("Hello World from process %d of %d\n", process_rank, size_of_cluster);
-            fflush(stdout);
-        }
-        ASSERT_MIMPI_OK(MIMPI_Barrier());
+        int res = setenv(WRITE_VAR, delay, true);
+        assert(res == 0);
     }
-
+    ASSERT_MIMPI_OK(MIMPI_Barrier());
+    int res = unsetenv(WRITE_VAR);
+    assert(res == 0);
+    printf("afterr\n");
     MIMPI_Finalize();
     return 0;
 }

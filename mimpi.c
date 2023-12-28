@@ -140,7 +140,10 @@ void *read_messages_from_source(void *args) {
 pthread_t threads[16];
 
 void MIMPI_Init(bool enable_deadlock_detection) {
+
     channels_init();
+    MIMPI_World_size();
+    MIMPI_World_rank();
 
     pthread_mutex_init(&mutex_pipes, NULL);
     pthread_mutex_init(&parent_sleeping, NULL);
@@ -215,12 +218,20 @@ void MIMPI_Finalize() {
     channels_finalize();
 }
 
+int world_size = -10;
 int MIMPI_World_size() {
-    return atoi(getenv("MIMPI_WORLD_SIZE")); // Konwertuje string na int
+    if (world_size == -10) {
+        world_size = atoi(getenv("MIMPI_WORLD_SIZE")); // Konwertuje string na int
+    }
+    return world_size;
 }
 
+int world_rank = -10;
 int MIMPI_World_rank() {
-    return atoi(getenv("MIMPI_RANK")); // getenv zwraca string
+    if (world_rank == -10) {
+        world_rank = atoi(getenv("MIMPI_RANK")); // getenv zwraca string
+    }
+    return world_rank;
 }
 
 MIMPI_Retcode MIMPI_Send(
@@ -347,27 +358,6 @@ MIMPI_Retcode MIMPI_Recv(
 
 
 
-
-
-
-
-
-// pipe 62 - 63 trzyma liczbe procesow czekajacych na barierze
-int increment_and_get_waiting_on_barrier() {
-    int waiting_on_barrier;
-    chrecv(62, &waiting_on_barrier, sizeof(int));
-    waiting_on_barrier++;
-    chsend(63, &waiting_on_barrier, sizeof(int));
-    return waiting_on_barrier;
-}
-
-void reset_waiting_on_barrier() {
-    int waiting_on_barrier;
-    chrecv(62, &waiting_on_barrier, sizeof(int));
-    waiting_on_barrier = 0;
-    chsend(63, &waiting_on_barrier, sizeof(int));
-}
-
 int get_barrier_read_desc(int rank) {
     return 20 + rank * 2;
 }
@@ -376,60 +366,58 @@ int get_barrier_write_desc(int rank) {
     return get_barrier_read_desc(rank) + 1;
 }
 
-void wake_up_children(int root_rank) {
-    void* message = malloc(512);
-
-    int nr_czesci = 1;
-    int liczba_czesci = 1;
-
-    memset(message, 0, 512);
-    memcpy(message + sizeof(int) * 0, &nr_czesci, sizeof(int));
-    memcpy(message + sizeof(int) * 1, &liczba_czesci, sizeof(int));
-    memcpy(message + sizeof(int) * 2, &root_rank, sizeof(int));
-
-    int n = MIMPI_World_size();
-    int w = MIMPI_World_rank();
-    int i = n - root_rank;
-
-    if (2 * ((w + i) % n) + 1 < n) { // Jak mamy lewe dziecko
-        int l = (2 * w + i + 1) % n;
-        chsend(get_barrier_write_desc(l), message, 512); // Wysyłamy lewemu dziecku
-    }
-    if (2 * ((w + i) % n) + 2 < n) { // Jak mamy prawe dziecko
-        int p = (2 * w + i + 2) % n;
-        chsend(get_barrier_write_desc(p), message, 512); // Wysyłamy prawemu dziecku
-    }
-
-    free(message);
-}
-
 MIMPI_Retcode MIMPI_Barrier() {
 
-    int waiting_on_barrier = increment_and_get_waiting_on_barrier();
+    void* buffer = malloc(512);
+    void* message = malloc(512);
 
-    if (waiting_on_barrier == MIMPI_World_size()) { // jesteśmy ostatni
-        reset_waiting_on_barrier();
+    // Czekanie aż wszyscy się zbiorą
 
-        // budzimy
-        wake_up_children(MIMPI_World_rank());
+    if (world_rank == 0) { // jesteśmy korzeniem
+        chrecv(get_barrier_read_desc(world_rank), buffer, 512); // Czekamy na dowolną wiadomość
     }
-    else {
+    else if (world_rank * 2 + 1 < world_size || world_rank * 2 + 2 < world_size) { // jesteśmy rodzicem niekorzeniem
+        chrecv(get_barrier_read_desc(world_rank), buffer, 512);
+        if (world_rank * 2 + 2 < world_size) { // Jak mamy prawe dziecko to czekamy na drugą wiadomość
+            chrecv(get_barrier_read_desc(world_rank), buffer, 512);
+        }
 
-        // czekamy
-        void* buffer = malloc(512);
-        chrecv(get_barrier_read_desc(MIMPI_World_rank()), buffer, 512); // Czekamy na dowolną wiadomość
-        int nr_czesci = 1;
-        int liczba_czesci = 1;
-        int root_rank;
-
-        memcpy(&nr_czesci, buffer + sizeof(int) * 0, sizeof(int));
-        memcpy(&liczba_czesci, buffer + sizeof(int) * 1, sizeof(int));
-        memcpy(&root_rank, buffer + sizeof(int) * 2, sizeof(int));
-
-        free(buffer);
-
-        wake_up_children(root_rank);
+        chsend(get_barrier_write_desc((world_rank - 1) / 2), message, 512); // wysyłamy wiadomość rodzicowi
     }
+    else { // jesteśmy liściem
+        chsend(get_barrier_write_desc((world_rank - 1) / 2), message, 512); // wysyłamy wiadomość rodzicowi
+    }
+
+    // Czekanie na obudzenie
+
+    if (world_rank == 0) { // jesteśmy korzeniem
+        // budzimy dzieci
+        if (2 * world_rank + 1 < world_size) { // Jak mamy lewe dziecko
+            chsend(get_barrier_write_desc(2 * world_rank + 1), message, 512);
+        }
+        if (2 * world_rank + 2 < world_size) {
+            chsend(get_barrier_write_desc(2 * world_rank + 2), message, 512);
+        }
+    }
+    else if (world_rank * 2 + 1 < world_size || world_rank * 2 + 2 < world_size) { // jesteśmy rodzicem niekorzeniem
+        // czekamy na wiadomosc od rodzica
+        chrecv(get_barrier_read_desc(world_rank), buffer, 512);
+
+        // budzimy dzieci
+        if (2 * world_rank + 1 < world_size) { // Jak mamy lewe dziecko
+            chsend(get_barrier_write_desc(2 * world_rank + 1), message, 512);
+        }
+        if (2 * world_rank + 2 < world_size) {
+            chsend(get_barrier_write_desc(2 * world_rank + 2), message, 512);
+        }
+    }
+    else { // jesteśmy liściem
+        // czekamy na wiadomosc od rodzica
+        chrecv(get_barrier_read_desc(world_rank), buffer, 512);
+    }
+
+    free(buffer);
+    free(message);
 
     return MIMPI_SUCCESS;
 }
