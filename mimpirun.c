@@ -9,11 +9,7 @@
 #include <stdio.h>
 
 #define OVERWRITE 1
-#define POM_PIPES 5
-
-// https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory
-// https://pubs.opengroup.org/onlinepubs/009604599/functions/pipe.html
-// https://stackoverflow.com/questions/29852077/will-a-process-writing-to-a-pipe-block-if-the-pipe-is-full#comment47830197_29852077 - write do pełnego pipe'a jest blokujący, read z pustego też
+#define POM_PIPES 25 // n^2 pipeów zaczyna się od 70, blokada od 20 do 59, pomocnicze od 60 do 69
 
 void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
 
@@ -79,14 +75,16 @@ int main(int argc, char *argv[]) {
 
     create_descriptors(n, desc, pom_desc);
 
-    // W pipe 20-21 będą współdzielone dane: tablica 0-1 który proces jest w środku(1) a który nie(0), i licznik ile procesów jest w środku
+    // W pipe 60-61 będą współdzielone dane: tablica 0-1 który proces jest w środku(1) a który nie(0), i licznik ile procesów jest w środku
     int active[n + 1];
     for (int i = 0; i < n; i++) {
         active[i] = 1;
     }
     active[n] = n;
-    write(21, active, sizeof(int) * (n + 1));
+    chsend(61, active, sizeof(int) * (n + 1));
 
+    int waiting_on_barrier = 0;
+    chsend(63, &waiting_on_barrier, sizeof(int));
 
     pid_t pids[n]; // pid'y dzieci
     for (int i = 0; i < n; i++) {

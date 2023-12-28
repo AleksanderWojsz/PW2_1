@@ -1,34 +1,22 @@
-#include <assert.h>
 #include <stdbool.h>
-#include <string.h>
+#include <stdio.h>
 #include "mimpi.h"
 #include "examples/mimpi_err.h"
-
-char data[21372137];
 
 int main(int argc, char **argv)
 {
     MIMPI_Init(false);
+    int const process_rank = MIMPI_World_rank();
+    int const size_of_cluster = MIMPI_World_size();
 
-    int const world_rank = MIMPI_World_rank();
-
-    memset(data, world_rank == 0 ? 42 : 7, sizeof(data));
-
-    int const tag = 17;
-
-    if (world_rank == 0) {
-
-        ASSERT_MIMPI_OK(MIMPI_Send(data, sizeof(data), 1, tag));
-        for (int i = 0; i < sizeof(data); i += 789) {
-            assert(data[789] == 42);
-        }
-    }
-    else if (world_rank == 1)
+    for (int i = 0; i < size_of_cluster; i++)
     {
-        ASSERT_MIMPI_OK(MIMPI_Recv(data, sizeof(data), 0, tag));
-        for (int i = 0; i < sizeof(data); i += 789) {
-            assert(data[789] == 42);
+        if (i == process_rank)
+        {
+            printf("Hello World from process %d of %d\n", process_rank, size_of_cluster);
+            fflush(stdout);
         }
+        ASSERT_MIMPI_OK(MIMPI_Barrier());
     }
 
     MIMPI_Finalize();
@@ -36,6 +24,8 @@ int main(int argc, char **argv)
 }
 
 
+
+//
 //#include <stdbool.h>
 //#include <stdio.h>
 //#include "mimpi.h"
@@ -70,12 +60,20 @@ int main(int argc, char **argv)
 
 // TODO grupowe
 // TODO wiadomości mniejsze niz 512B
+// TODO zrobic zeby world rank i size czytalo z pipea tylko raz
 // TODO assert_sys_ok
 // TODO co jak na starcie będzie zajęty deskryptor 19
 // TODO szukanie wiadomosci nie od poczatku
 // TODO chsend zwraca EPIPE jeśli koniec do odczytu łącza jest zamknięty więc możesz wiedzieć od razu że nie da się wysłać
 
+// TODO co miało być wysłane przed barierą będzie wysłane bo send musi się skończyć
+// TODO nie przeszkadza nam że nie wszystko będzie odebrane podczas beriery (gdzie indziej też nam nie przeszkadza)
+// TODO bo to co odebraliśmy/będziemy odbierali interesuje nas tylko jak robimy receive
 
+
+// https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory
+// https://pubs.opengroup.org/onlinepubs/009604599/functions/pipe.html
+// https://stackoverflow.com/questions/29852077/will-a-process-writing-to-a-pipe-block-if-the-pipe-is-full#comment47830197_29852077 - write do pełnego pipe'a jest blokujący, read z pustego też
 
 /*
  make

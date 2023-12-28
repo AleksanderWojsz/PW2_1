@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 
-#define POM_PIPES 5
+#define POM_PIPES 25
 #define OUT_OF_MPI_BLOCK (-1)
 #define META_INFO_SIZE 4
 
@@ -37,10 +37,10 @@ int check_arguments_correctness(int other_process_rank) {
 
 void notify_iam_out() {
     int is_active[MIMPI_World_size() + 1];
-    chrecv(20, is_active, sizeof(int) * (MIMPI_World_size() + 1));
+    chrecv(60, is_active, sizeof(int) * (MIMPI_World_size() + 1));
     is_active[MIMPI_World_rank()] = 0;
     is_active[MIMPI_World_size()]--;
-    chsend(21, is_active, sizeof(int) * (MIMPI_World_size() + 1));
+    chsend(61, is_active, sizeof(int) * (MIMPI_World_size() + 1));
 }
 
 bool is_in_MPI_block(int nr) {
@@ -50,18 +50,18 @@ bool is_in_MPI_block(int nr) {
     }
 
     int is_active[MIMPI_World_size() + 1];
-    chrecv(20, is_active, sizeof(int) * (MIMPI_World_size() + 1));
+    chrecv(60, is_active, sizeof(int) * (MIMPI_World_size() + 1));
     bool result = (is_active[nr] == 1);
-    chsend(21, is_active, sizeof(int) * (MIMPI_World_size() + 1));
+    chsend(61, is_active, sizeof(int) * (MIMPI_World_size() + 1));
     return result;
 }
 
 int MIMPI_get_read_desc(int src, int dest) {
-    return  src * MIMPI_World_size() * 2 + 20 + 2 * POM_PIPES + dest * 2;
+    return src * MIMPI_World_size() * 2 + 20 + 2 * POM_PIPES + dest * 2;
 }
 
 int MIMPI_get_write_desc(int src, int dest) {
-    return  MIMPI_get_read_desc(src, dest) + 1;
+    return MIMPI_get_read_desc(src, dest) + 1;
 }
 
 
@@ -116,7 +116,7 @@ void *read_messages_from_source(void *args) {
         // Zapisujemy wszystkie wiadomości, a jak rodzic czeka na daną wiadomość
         // lub wiadomość to dowolna specjalna wiadomość od tego nadawcy to budzimy rodzica
         if ((waiting_count == received && waiting_source == source && (waiting_tag == fragment_tag || waiting_tag == 0)) ||
-                (waiting_source == source && fragment_tag < 0)) {
+            (waiting_source == source && fragment_tag < 0)) {
             waiting_count = -10;
             waiting_source = -10;
             waiting_tag = -10;
@@ -347,8 +347,91 @@ MIMPI_Retcode MIMPI_Recv(
 
 
 
+
+
+
+
+
+// pipe 62 - 63 trzyma liczbe procesow czekajacych na barierze
+int increment_and_get_waiting_on_barrier() {
+    int waiting_on_barrier;
+    chrecv(62, &waiting_on_barrier, sizeof(int));
+    waiting_on_barrier++;
+    chsend(63, &waiting_on_barrier, sizeof(int));
+    return waiting_on_barrier;
+}
+
+void reset_waiting_on_barrier() {
+    int waiting_on_barrier;
+    chrecv(62, &waiting_on_barrier, sizeof(int));
+    waiting_on_barrier = 0;
+    chsend(63, &waiting_on_barrier, sizeof(int));
+}
+
+int get_barrier_read_desc(int rank) {
+    return 20 + rank * 2;
+}
+
+int get_barrier_write_desc(int rank) {
+    return get_barrier_read_desc(rank) + 1;
+}
+
+void wake_up_children(int root_rank) {
+    void* message = malloc(512);
+
+    int nr_czesci = 1;
+    int liczba_czesci = 1;
+
+    memset(message, 0, 512);
+    memcpy(message + sizeof(int) * 0, &nr_czesci, sizeof(int));
+    memcpy(message + sizeof(int) * 1, &liczba_czesci, sizeof(int));
+    memcpy(message + sizeof(int) * 2, &root_rank, sizeof(int));
+
+    int n = MIMPI_World_size();
+    int w = MIMPI_World_rank();
+    int i = n - root_rank;
+
+    if (2 * ((w + i) % n) + 1 < n) { // Jak mamy lewe dziecko
+        int l = (2 * w + i + 1) % n;
+        chsend(get_barrier_write_desc(l), message, 512); // Wysyłamy lewemu dziecku
+    }
+    if (2 * ((w + i) % n) + 2 < n) { // Jak mamy prawe dziecko
+        int p = (2 * w + i + 2) % n;
+        chsend(get_barrier_write_desc(p), message, 512); // Wysyłamy prawemu dziecku
+    }
+
+    free(message);
+}
+
 MIMPI_Retcode MIMPI_Barrier() {
-    TODO
+
+    int waiting_on_barrier = increment_and_get_waiting_on_barrier();
+
+    if (waiting_on_barrier == MIMPI_World_size()) { // jesteśmy ostatni
+        reset_waiting_on_barrier();
+
+        // budzimy
+        wake_up_children(MIMPI_World_rank());
+    }
+    else {
+
+        // czekamy
+        void* buffer = malloc(512);
+        chrecv(get_barrier_read_desc(MIMPI_World_rank()), buffer, 512); // Czekamy na dowolną wiadomość
+        int nr_czesci = 1;
+        int liczba_czesci = 1;
+        int root_rank;
+
+        memcpy(&nr_czesci, buffer + sizeof(int) * 0, sizeof(int));
+        memcpy(&liczba_czesci, buffer + sizeof(int) * 1, sizeof(int));
+        memcpy(&root_rank, buffer + sizeof(int) * 2, sizeof(int));
+
+        free(buffer);
+
+        wake_up_children(root_rank);
+    }
+
+    return MIMPI_SUCCESS;
 }
 
 MIMPI_Retcode MIMPI_Bcast(
@@ -373,11 +456,11 @@ MIMPI_Retcode MIMPI_Reduce(
 
 void print_active() {
     int is_active[MIMPI_World_size() + 1];
-    chrecv(20, is_active, sizeof(int) * (MIMPI_World_size() + 1));
+    chrecv(60, is_active, sizeof(int) * (MIMPI_World_size() + 1));
     for (int i = 0; i < MIMPI_World_size() + 1; i++) {
         printf("%d ", is_active[i]);
     }
     printf("\n");
 
-    chsend(21, is_active, sizeof(int) * (MIMPI_World_size() + 1));
+    chsend(61, is_active, sizeof(int) * (MIMPI_World_size() + 1));
 }
