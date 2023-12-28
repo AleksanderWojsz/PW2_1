@@ -1,24 +1,33 @@
+#include <assert.h>
 #include <stdbool.h>
-#include <stdio.h>
+#include <string.h>
 #include "mimpi.h"
 #include "examples/mimpi_err.h"
+
+char data[21372137];
 
 int main(int argc, char **argv)
 {
     MIMPI_Init(false);
+
     int const world_rank = MIMPI_World_rank();
 
+    memset(data, world_rank == 0 ? 42 : 7, sizeof(data));
 
-    char number;
-    if (world_rank == 0)
-    {
-        number = 42;
-        MIMPI_Send(&number, 1, 1, 1);
+    int const tag = 17;
+
+    if (world_rank == 0) {
+
+        ASSERT_MIMPI_OK(MIMPI_Send(data, sizeof(data), 1, tag));
+        for (int i = 0; i < sizeof(data); i += 789) {
+            assert(data[789] == 42);
+        }
     }
     else if (world_rank == 1)
     {
-        if (MIMPI_Recv(&number, 1, 0, 2) != 3) {
-            printf("blad\n");
+        ASSERT_MIMPI_OK(MIMPI_Recv(data, sizeof(data), 0, tag));
+        for (int i = 0; i < sizeof(data); i += 789) {
+            assert(data[789] == 42);
         }
     }
 
@@ -58,6 +67,13 @@ int main(int argc, char **argv)
 //
 //    return 0;
 //}
+
+// TODO grupowe
+// TODO wiadomości mniejsze niz 512B
+// TODO assert_sys_ok
+// TODO co jak na starcie będzie zajęty deskryptor 19
+// TODO szukanie wiadomosci nie od poczatku
+// TODO chsend zwraca EPIPE jeśli koniec do odczytu łącza jest zamknięty więc możesz wiedzieć od razu że nie da się wysłać
 
 
 

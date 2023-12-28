@@ -92,6 +92,17 @@ void list_remove(Message **head, int count, int source, int tag) {
     }
 }
 
+void list_clear(Message **head) {
+    Message *current = *head;
+    Message *next;
+    while (current != NULL) {
+        next = current->next;
+        free(current->data);
+        free(current);
+        current = next;
+    }
+    *head = NULL;
+}
 
 // Znajdowanie pierwszego elementu o wskazanym count, source, tag (lub tag == 0)
 Message *list_find_with_last(Message *head, int count, int source, int tag, Message **last) {

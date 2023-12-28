@@ -17,9 +17,11 @@
 Message* received_list = NULL;
 bool finished[16] = {false};
 
-// Wszystkie wiadomości mają rozmiar 512B, jak wiadomość jest za mała to jest dopełniana zerami
-// Zakładam że jeśli podczas wysyłania bardzo długiej wiadomości odbiorca się skończy, to przestajemy przesyłać wiadomość
+// Wszystkie wiadomości mają rozmiar 512B, jak wiadomość jest za mała, to jest dopełniana zerami
+// Zakładam, że jeśli podczas wysyłania bardzo długiej wiadomości odbiorca się skończy, to przestajemy przesyłać wiadomość,
 // żeby nie zawiesić się na pipe
+
+
 
 int check_arguments_correctness(int other_process_rank) {
     if (MIMPI_World_rank() == other_process_rank) {
@@ -178,14 +180,14 @@ void MIMPI_Finalize() {
         }
     }
 
-//     Czekanie na zakończenie wszystkich wątków
+    // Czekanie na zakończenie wszystkich wątków
     for (int i = 0; i < MIMPI_World_size(); i++) {
         if (i != MIMPI_World_rank()) {
             pthread_join(threads[i], NULL);
         }
     }
 
-    // TODO czyszczenie listy otrzymanych wiadomości
+    list_clear(&received_list);
 
     // wysyłamy wszystkim innym wiadomość z tagiem OUT_OF_MPI_BLOCK (-1) oznaczającą, że skończyliśmy
     for (int i = 0; i < MIMPI_World_size(); i++) {
