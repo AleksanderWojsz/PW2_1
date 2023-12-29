@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <stdint.h>
 
 #define POM_PIPES 25
 #define OUT_OF_MPI_BLOCK (-1)
@@ -486,6 +487,40 @@ MIMPI_Retcode MIMPI_Barrier() {
     return ret;
 }
 
+// tablice są typu uint8_t
+void reduce(void* reduced_array, void const* array_1, void const* array_2, int count, MIMPI_Op op) {
+
+    uint8_t* reduced = (uint8_t*)reduced_array;
+    uint8_t* arr1 = (uint8_t*)array_1;
+    uint8_t* arr2 = (uint8_t*)array_2;
+
+    for (int i = 0; i < count; i++) {
+        if (op == MIMPI_SUM) {
+            reduced[i] = arr1[i] + arr2[i];
+        }
+        else if (op == MIMPI_PROD) {
+            reduced[i] = arr1[i] * arr2[i];
+        }
+        else if (op == MIMPI_MIN) {
+            if (arr1[i] < arr2[i]) {
+                reduced[i] = arr1[i];
+            }
+            else {
+                reduced[i] = arr2[i];
+            }
+        }
+        else if (op == MIMPI_MAX) {
+            if (arr1[i] > arr2[i]) {
+                reduced[i] = arr1[i];
+            }
+            else {
+                reduced[i] = arr2[i];
+            }
+        }
+    }
+}
+
+
 MIMPI_Retcode MIMPI_Reduce(
         void const *send_data,
         void *recv_data,
@@ -493,7 +528,109 @@ MIMPI_Retcode MIMPI_Reduce(
         MIMPI_Op op,
         int root
 ) {
-    TODO
+
+
+    int foo_fragment_tag = 0;
+    int foo_count = 0;
+
+    void* array_1 = malloc(count);
+    void* array_2 = malloc(count);
+    void* reduced_array = malloc(count);
+
+    int i = world_size - root;
+    int n = world_size;
+    int w = world_rank;
+
+    // Wysyłany tag oznacza numer nadawcy, żeby czytający wiedział, od kogo jest dana porcja z pipe'a
+
+    if (world_rank == root || 2 * ((w +i) % n) + 1 < world_size) { // jesteśmy korzeniem lub mamy dziecko
+
+        if (2 * ((w +i) % n) + 1 < world_size && 2 * ((w +i) % n) + 2 >= world_size) { // mamy tylko lewe dziecko
+            read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &array_1, &foo_fragment_tag, &foo_count); // czekamy na pierwszą tablicę
+            reduce(reduced_array, send_data, array_1, count, op);
+        }
+        else if (2 * ((w +i) % n) + 1 < world_size && 2 * ((w +i) % n) + 2 < world_size) { // mamy dwójkę dzieci
+
+            // Odczytana część może być od dowolnego z dzieci
+            int max_message_size = 512 - sizeof(int) * META_INFO_SIZE;
+            int liczba_czesci = (count + (max_message_size - 1)) / max_message_size; // ceil(A/B) use (A + (B-1)) / B
+            void* buffer = malloc(512);  // Bufor do przechowywania fragmentów i metadanych
+            int ile = 0, z_ilu = 1, ranga_nadawcy, current_message_size;
+            int received_1 = 0;
+            int received_2 = 0;
+            int pierwsza_ranga;
+
+            for (int j = 0; j < 2 * liczba_czesci; j++) {
+
+                chrecv(get_barrier_read_desc(world_rank), buffer, 512);
+
+                // Rozpakowywanie metadanych z bufora
+                memcpy(&ile, buffer + sizeof(int) * 0, sizeof(int));
+                memcpy(&z_ilu, buffer + sizeof(int) * 1, sizeof(int));
+                memcpy(&ranga_nadawcy, buffer + sizeof(int) * 2, sizeof(int));
+                memcpy(&current_message_size, buffer + sizeof(int) * 3, sizeof(int));
+
+                if (j == 0) {
+                    pierwsza_ranga = ranga_nadawcy;
+                }
+
+                if (ranga_nadawcy == pierwsza_ranga) {
+                    memcpy(array_1 + received_1, buffer + sizeof(int) * META_INFO_SIZE, current_message_size);
+                    received_1 += current_message_size;
+                } else {
+                    memcpy(array_2 + received_2, buffer + sizeof(int) * META_INFO_SIZE, current_message_size);
+                    received_2 += current_message_size;
+                }
+            }
+
+            free(buffer);
+
+            reduce(reduced_array, send_data, array_1, count, op);
+            reduce(reduced_array, reduced_array, array_2, count, op);
+        }
+
+        if (world_rank == root) { // jesteśmy korzeniem
+            // zapisujemy sobie wynik
+            memcpy(recv_data, reduced_array, count);
+        } else {
+            send_message_to_pipe(get_barrier_write_desc(find_parent(root)), reduced_array, count, world_rank, false, 10); // wysyłamy wiadomość rodzicowi
+        }
+    }
+    else { // jesteśmy liściem
+        send_message_to_pipe(get_barrier_write_desc(find_parent(root)), send_data, count, world_rank, false, 10); // wysyłamy naszą tablicę rodzicowi
+    }
+
+    free(array_1);
+    free(array_2);
+    free(reduced_array);
+
+
+
+    // Czekamy aż root obudzi wszystkich
+    void* foo_message = malloc(512);
+    memset(foo_message, -99, 512);
+    void* foo_buffer = malloc(512);
+
+    if (world_rank == root) { // jesteśmy korzeniem
+        children_wake_up_and_send_data(w, i, n, foo_message, 100);
+    }
+    else if (2 * ((w +i) % n) + 1 < world_size) { // jesteśmy rodzicem niekorzeniem
+
+        // czekamy na wiadomosc od rodzica
+        read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &foo_buffer, &foo_fragment_tag, &foo_count);
+
+        children_wake_up_and_send_data(w, i, n, foo_message, 100);
+    }
+    else { // jesteśmy liściem
+
+        // czekamy na wiadomosc od rodzica
+        read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &foo_buffer, &foo_fragment_tag, &foo_count);
+    }
+
+    free(foo_message);
+    free(foo_buffer);
+
+    return MIMPI_SUCCESS;
 }
 
 
