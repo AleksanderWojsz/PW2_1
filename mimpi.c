@@ -64,7 +64,39 @@ int MIMPI_get_write_desc(int src, int dest) {
     return MIMPI_get_read_desc(src, dest) + 1;
 }
 
+// Przekazany bufor ma mieć rozmiar 496B
+void read_message_from_pom_pipe(int descriptor, void** result_buffer, int* count, int* tag) {
 
+    int result_buffer_size = 496;
+    void* buffer = malloc(512);  // Bufor do przechowywania fragmentów i metadanych
+    int received = 0;  // Ile bajtów danych już otrzymaliśmy
+    int ile = 0, z_ilu = 1, fragment_tag, current_message_size;
+
+    while (ile < z_ilu) {
+
+        // Odbieranie fragmentu
+        chrecv(descriptor, buffer, 512);
+
+        // Rozpakowywanie metadanych z bufora
+        memcpy(&ile, buffer + sizeof(int) * 0, sizeof(int));
+        memcpy(&z_ilu, buffer + sizeof(int) * 1, sizeof(int));
+        memcpy(&fragment_tag, buffer + sizeof(int) * 2, sizeof(int));
+        memcpy(&current_message_size, buffer + sizeof(int) * 3, sizeof(int));
+
+        // Zapisywanie danych z fragmentu do głównego bufora danych
+        memcpy(*result_buffer + received, buffer + sizeof(int) * META_INFO_SIZE, current_message_size);
+        received += current_message_size;
+
+        if (ile < z_ilu) { // Jak to nie koniec czytania to powiększamy bufor
+            result_buffer_size += 496;
+            *result_buffer = realloc(*result_buffer, result_buffer_size);
+        }
+    }
+    *count = received;
+    *tag = fragment_tag;
+
+    free(buffer);
+}
 
 
 pthread_mutex_t mutex_pipes;
@@ -80,42 +112,20 @@ void *read_messages_from_source(void *src) {
 
     // Czytamy wiadomosci od konkretnego procesu i zapisujemy je na liscie
     while (true) {
-        int read_buffer_size = 496;
-        void* read_message = malloc(496); // Ten bufor będzie się powiększał w razie potrzeby
 
-        void* buffer = malloc(512);  // Bufor do przechowywania fragmentów i metadanych
-        int received = 0;  // Ile bajtów danych już otrzymaliśmy
-        int ile = 0, z_ilu = 1, fragment_tag, current_message_size;
-
-        while (ile < z_ilu) {
-
-            // Odbieranie fragmentu
-            chrecv(MIMPI_get_read_desc(source, MIMPI_World_rank()), buffer, 512);
-
-            // Rozpakowywanie metadanych z bufora
-            memcpy(&ile, buffer + sizeof(int) * 0, sizeof(int));
-            memcpy(&z_ilu, buffer + sizeof(int) * 1, sizeof(int));
-            memcpy(&fragment_tag, buffer + sizeof(int) * 2, sizeof(int));
-            memcpy(&current_message_size, buffer + sizeof(int) * 3, sizeof(int));
-
-            // Zapisywanie danych z fragmentu do głównego bufora danych
-            memcpy(read_message + received, buffer + sizeof(int) * META_INFO_SIZE, current_message_size);
-            received += current_message_size;
-
-            if (ile < z_ilu) { // Jak to nie koniec czytania to powiększamy bufor
-                read_buffer_size += 496;
-                read_message = realloc(read_message, read_buffer_size);
-            }
-        }
+        void* read_message = malloc(496);
+        int fragment_tag = 0;
+        int count = 0;
+        read_message_from_pom_pipe(MIMPI_get_read_desc(source, MIMPI_World_rank()), &read_message, &count, &fragment_tag);
 
         // W tym miejscu mamy już całą jedną wiadomość
 
         pthread_mutex_lock(&mutex_pipes);
-        list_add(&received_list, read_message, received, source, fragment_tag);
+        list_add(&received_list, read_message, count, source, fragment_tag);
 
         // Zapisujemy wszystkie wiadomości, a jak rodzic czeka na daną wiadomość
         // lub wiadomość to dowolna specjalna wiadomość od tego nadawcy to budzimy rodzica
-        if ((waiting_count == received && waiting_source == source && (waiting_tag == fragment_tag || waiting_tag == 0)) ||
+        if ((waiting_count == count && waiting_source == source && (waiting_tag == fragment_tag || waiting_tag == 0)) ||
             (waiting_source == source && fragment_tag < 0)) {
             waiting_count = -10;
             waiting_source = -10;
@@ -124,7 +134,6 @@ void *read_messages_from_source(void *src) {
         }
         pthread_mutex_unlock(&mutex_pipes);
 
-        free(buffer);
         free(read_message);
 
         if (fragment_tag == -1) { // Jak nie będzie już więcej wiadomości to kończymy
@@ -234,20 +243,7 @@ int MIMPI_World_rank() {
     return world_rank;
 }
 
-MIMPI_Retcode MIMPI_Send(
-        void const *data,
-        int count,
-        int destination,
-        int tag
-) {
-
-    if (check_arguments_correctness(destination) != 0) {
-        return check_arguments_correctness(destination);
-    }
-    else if (is_in_MPI_block(destination) == false) {
-        return MIMPI_ERROR_REMOTE_FINISHED;
-    }
-
+int send_message_to_pipe(int descriptor, void const *data, int count, int tag, bool check_if_dest_active, int destination) {
     // Dzielimy wiadomość na części rozmiaru ile + z_ilu + tag + current_message_size + wiadomość = 512B
     int max_message_size = 512 - sizeof(int) * META_INFO_SIZE;
     int liczba_czesci = (count + (max_message_size - 1)) / max_message_size; // ceil(A/B) use (A + (B-1)) / B
@@ -257,7 +253,7 @@ MIMPI_Retcode MIMPI_Send(
     for (int i = 0; i < liczba_czesci; i++) {
 
         // Na wypadek, gdyby odbiorca się zakończył przy wysłaniu długiej wiadomości
-        if (is_in_MPI_block(destination) == false) {
+        if (check_if_dest_active && is_in_MPI_block(destination) == false) {
             return MIMPI_ERROR_REMOTE_FINISHED;
         }
 //        printf("Wysylam czesc %d z %d, jestem %d \n", i + 1, liczba_czesci, MIMPI_World_rank());
@@ -277,12 +273,29 @@ MIMPI_Retcode MIMPI_Send(
         memcpy(message + sizeof(int) * 4, data + i * max_message_size, current_message_size);
 
         // Wysyłanie wiadomości
-        chsend(MIMPI_get_write_desc(MIMPI_World_rank(), destination), message, 512);
+        chsend(descriptor, message, 512);
         nr_czesci++;
         free(message);
     }
 
     return MIMPI_SUCCESS;
+}
+
+MIMPI_Retcode MIMPI_Send(
+        void const *data,
+        int count,
+        int destination,
+        int tag
+) {
+
+    if (check_arguments_correctness(destination) != 0) {
+        return check_arguments_correctness(destination);
+    }
+    else if (is_in_MPI_block(destination) == false) {
+        return MIMPI_ERROR_REMOTE_FINISHED;
+    }
+
+    return send_message_to_pipe(MIMPI_get_write_desc(MIMPI_World_rank(), destination), data, count, tag, true, destination);
 }
 
 
@@ -374,69 +387,16 @@ int find_parent(int root) {
     return ((((w + i) % n) - 1) / 2 + n - i) % n;
 }
 
+
 void children_wake_up_and_send_data(int w, int i, int n, void* data, int count) {
     // budzimy dzieci
     if (2 * ((w + i) % n) + 1 < n) { // Jak mamy lewe dziecko
         int l = (2 * w + i + 1) % n;
-
-        int max_message_size = 512 - sizeof(int) * META_INFO_SIZE;
-        int liczba_czesci = (count + (max_message_size - 1)) / max_message_size; // ceil(A/B) use (A + (B-1)) / B
-        int nr_czesci = 1;
-        int foo_tag = 0;
-
-        // tworzenie wiadomosci
-        for (int k = 0; k < liczba_czesci; k++) {
-
-            int current_message_size = max_message_size;
-            if (k == liczba_czesci - 1) { // ostatnia część wiadomości
-                current_message_size = count - (liczba_czesci - 1) * max_message_size;
-            }
-
-            void *message = malloc(512);
-            memset(message, 0, 512);
-
-            memcpy(message + sizeof(int) * 0, &nr_czesci, sizeof(int));
-            memcpy(message + sizeof(int) * 1, &liczba_czesci, sizeof(int));
-            memcpy(message + sizeof(int) * 2, &foo_tag, sizeof(int));
-            memcpy(message + sizeof(int) * 3, &current_message_size, sizeof(int));
-            memcpy(message + sizeof(int) * 4, data + k * max_message_size, current_message_size);
-
-            // Wysyłanie wiadomości
-            chsend(get_barrier_write_desc(l), message, 512); // Wysyłamy lewemu dziecku
-            nr_czesci++;
-            free(message);
-        }
+        send_message_to_pipe(get_barrier_write_desc(l), data, count, 10, false, 10);
     }
     if (2 * ((w + i) % n) + 2 < n) {
         int p = (2 * w + i + 2) % n;
-
-        int max_message_size = 512 - sizeof(int) * META_INFO_SIZE;
-        int liczba_czesci = (count + (max_message_size - 1)) / max_message_size; // ceil(A/B) use (A + (B-1)) / B
-        int nr_czesci = 1;
-        int foo_tag = 0;
-
-        // tworzenie wiadomosci
-        for (int k = 0; k < liczba_czesci; k++) {
-
-            int current_message_size = max_message_size;
-            if (k == liczba_czesci - 1) { // ostatnia część wiadomości
-                current_message_size = count - (liczba_czesci - 1) * max_message_size;
-            }
-
-            void *message = malloc(512);
-            memset(message, 0, 512);
-
-            memcpy(message + sizeof(int) * 0, &nr_czesci, sizeof(int));
-            memcpy(message + sizeof(int) * 1, &liczba_czesci, sizeof(int));
-            memcpy(message + sizeof(int) * 2, &foo_tag, sizeof(int));
-            memcpy(message + sizeof(int) * 3, &current_message_size, sizeof(int));
-            memcpy(message + sizeof(int) * 4, data + k * max_message_size, current_message_size);
-
-            // Wysyłanie wiadomości
-            chsend(get_barrier_write_desc(p), message, 512);// Wysyłamy prawemu dziecku
-            nr_czesci++;
-            free(message);
-        }
+        send_message_to_pipe(get_barrier_write_desc(p), data, count, 10, false, 10);
     }
 }
 
@@ -448,10 +408,12 @@ MIMPI_Retcode MIMPI_Bcast(
         int count,
         int root
 ) {
-
     void* buffer = malloc(512);
     void* foo_message = malloc(512);
     memset(foo_message, 0, 512);
+
+    int foo_fragment_tag = 0;
+    int foo_count = 0;
 
     int i = world_size - root;
     int n = world_size;
@@ -482,41 +444,13 @@ MIMPI_Retcode MIMPI_Bcast(
         children_wake_up_and_send_data(w, i, n, data, count);
     }
     else if (2 * ((w +i) % n) + 1 < world_size)  { // jesteśmy rodzicem niekorzeniem
+
         // czekamy na wiadomosc od rodzica
+        void* read_message = malloc(496); // Ten bufor może zostać powiększony
+        read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &read_message, &foo_fragment_tag, &foo_count);
 
-        int read_buffer_size = 496;
-        void* read_message = malloc(496); // Ten bufor będzie się powiększał w razie potrzeby
-
-        void* buffer2 = malloc(512);  // Bufor do przechowywania fragmentów i metadanych
-        int received = 0;  // Ile bajtów danych już otrzymaliśmy
-        int ile = 0, z_ilu = 1, fragment_tag, current_message_size;
-
-        while (ile < z_ilu) {
-
-            // Odbieranie fragmentu
-            chrecv(get_barrier_read_desc(world_rank), buffer2, 512);
-
-            // Rozpakowywanie metadanych z bufora
-            memcpy(&ile, buffer2 + sizeof(int) * 0, sizeof(int));
-            memcpy(&z_ilu, buffer2 + sizeof(int) * 1, sizeof(int));
-            memcpy(&fragment_tag, buffer2 + sizeof(int) * 2, sizeof(int));
-            memcpy(&current_message_size, buffer2 + sizeof(int) * 3, sizeof(int));
-
-            // Zapisywanie danych z fragmentu do głównego bufora danych
-            memcpy(read_message + received, buffer2 + sizeof(int) * META_INFO_SIZE, current_message_size);
-            received += current_message_size;
-
-            if (ile < z_ilu) { // Jak to nie koniec czytania to powiększamy bufor
-                read_buffer_size += 496;
-                read_message = realloc(read_message, read_buffer_size);
-            }
-        }
-
-
-        // W tym miejscu mamy już całą jedną wiadomość
         // zapisujemy dane od root'a
         memcpy(data, read_message, count);
-        free(buffer2);
         free(read_message);
 
         children_wake_up_and_send_data(w, i, n, data, count);
@@ -524,43 +458,12 @@ MIMPI_Retcode MIMPI_Bcast(
     else { // jesteśmy liściem
 
         // czekamy na wiadomosc od rodzica
+        void* read_message = malloc(496); // Ten bufor może zostać powiększony
+        read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &read_message, &foo_fragment_tag, &foo_count);
 
-        int read_buffer_size = 496;
-        void* read_message = malloc(496); // Ten bufor będzie się powiększał w razie potrzeby
-
-        void* buffer2 = malloc(512);  // Bufor do przechowywania fragmentów i metadanych
-        int received = 0;  // Ile bajtów danych już otrzymaliśmy
-        int ile = 0, z_ilu = 1, fragment_tag, current_message_size;
-
-        while (ile < z_ilu) {
-
-            // Odbieranie fragmentu
-            chrecv(get_barrier_read_desc(world_rank), buffer2, 512);
-
-            // Rozpakowywanie metadanych z bufora
-            memcpy(&ile, buffer2 + sizeof(int) * 0, sizeof(int));
-            memcpy(&z_ilu, buffer2 + sizeof(int) * 1, sizeof(int));
-            memcpy(&fragment_tag, buffer2 + sizeof(int) * 2, sizeof(int));
-            memcpy(&current_message_size, buffer2 + sizeof(int) * 3, sizeof(int));
-
-            // Zapisywanie danych z fragmentu do głównego bufora danych
-            memcpy(read_message + received, buffer2 + sizeof(int) * META_INFO_SIZE, current_message_size);
-            received += current_message_size;
-
-            if (ile < z_ilu) { // Jak to nie koniec czytania to powiększamy bufor
-                read_buffer_size += 496;
-                read_message = realloc(read_message, read_buffer_size);
-            }
-        }
-
-
-        // W tym miejscu mamy już całą jedną wiadomość
         // zapisujemy dane od root'a
         memcpy(data, read_message, count);
-
-        free(buffer2);
         free(read_message);
-
     }
 
     free(buffer);

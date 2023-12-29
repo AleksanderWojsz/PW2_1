@@ -1,82 +1,107 @@
-//#include <stdbool.h>
-//#include <stdio.h>
-//#include <assert.h>
-//#include "mimpi.h"
-//#include "examples/mimpi_err.h"
-//#define WRITE_VAR "CHANNELS_WRITE_DELAY"
-//
-//int main(int argc, char **argv)
-//{
-//    MIMPI_Init(false);
-//    int const world_rank = MIMPI_World_rank();
-//
-//    const char *delay = getenv("DELAY");
-//    if (delay)
-//    {
-//        int res = setenv(WRITE_VAR, delay, true);
-//        assert(res == 0);
-//    }
-//
-//    char number = 0;
-//    if (world_rank == 0)
-//        number = 42;
-//    ASSERT_MIMPI_OK(MIMPI_Bcast(&number, 1, 0));
-//    printf("Number: %d\n", number);
-//    fflush(stdout);
-//
-//    int res = unsetenv(WRITE_VAR);
-//    assert(res == 0);
-//
-//    MIMPI_Finalize();
-//    return 0;
-//}
-
-
-
-#include <assert.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdint.h>
 #include <string.h>
+#include <assert.h>
 #include "mimpi.h"
 #include "examples/mimpi_err.h"
-
-
 #define WRITE_VAR "CHANNELS_WRITE_DELAY"
-
-#define LARGE_MESSAGE_SIZE 1000000
-char data[LARGE_MESSAGE_SIZE];
 
 int main(int argc, char **argv)
 {
+    size_t data_size = 1;
+    if (argc > 1)
+    {
+        data_size = atoi(argv[1]);
+    }
+
     MIMPI_Init(false);
     int const world_rank = MIMPI_World_rank();
-    memset(data, world_rank == 0 ? 42 : 7, LARGE_MESSAGE_SIZE);
-
 
     const char *delay = getenv("DELAY");
-    if (delay) {
-        int res = setenv(WRITE_VAR, delay, 1);
+    if (delay)
+    {
+        int res = setenv(WRITE_VAR, delay, true);
         assert(res == 0);
     }
-    ASSERT_MIMPI_OK(MIMPI_Bcast(data, LARGE_MESSAGE_SIZE, 0));
+
+    uint8_t *data = malloc(data_size);
+    assert(data);
+    memset(data, 1, data_size);
+
+    if (world_rank == 0)
+    {
+        uint8_t *recv_data = malloc(data_size);
+        assert(recv_data);
+        ASSERT_MIMPI_OK(MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0));
+        for (int i = 1; i < data_size; ++i)
+            assert(recv_data[i] == recv_data[0]);
+        printf("Number: %d\n", recv_data[0]);
+        fflush(stdout);
+        free(recv_data);
+    }
+    else
+    {
+        ASSERT_MIMPI_OK(MIMPI_Reduce(data, NULL, data_size, MIMPI_SUM, 0));
+    }
+    assert(data[0] == 1);
+    for (int i = 1; i < data_size; ++i)
+        assert(data[i] == data[0]);
+    free(data);
+
     int res = unsetenv(WRITE_VAR);
     assert(res == 0);
-
-
-    for (int i = 200; i < LARGE_MESSAGE_SIZE; i += 200) {
-//        printf("Sample Data: %d\n", data[i]);
-        assert(data[i] == 42);
-    }
-    printf("Sample Data: %d\n", data[LARGE_MESSAGE_SIZE - 10]);
-    fflush(stdout);
 
     MIMPI_Finalize();
     return 0;
 }
 
 
+//#include <assert.h>
+//#include <stdbool.h>
+//#include <string.h>
+//#include "mimpi.h"
+//#include "examples/mimpi_err.h"
+//
+//
+//#define WRITE_VAR "CHANNELS_WRITE_DELAY"
+//
+//#define LARGE_MESSAGE_SIZE 1000000
+//char data[LARGE_MESSAGE_SIZE];
+//
+//int main(int argc, char **argv)
+//{
+//    MIMPI_Init(false);
+//    int const world_rank = MIMPI_World_rank();
+//    memset(data, world_rank == 0 ? 42 : 7, LARGE_MESSAGE_SIZE);
+//
+//
+//    const char *delay = getenv("DELAY");
+//    if (delay) {
+//        int res = setenv(WRITE_VAR, delay, 1);
+//        assert(res == 0);
+//    }
+//    ASSERT_MIMPI_OK(MIMPI_Bcast(data, LARGE_MESSAGE_SIZE, 0));
+//    int res = unsetenv(WRITE_VAR);
+//    assert(res == 0);
+//
+//
+//    for (int i = 200; i < LARGE_MESSAGE_SIZE; i += 200) {
+////        printf("Sample Data: %d\n", data[i]);
+//        assert(data[i] == 42);
+//    }
+//    printf("Sample Data: %d\n", data[LARGE_MESSAGE_SIZE - 10]);
+//    fflush(stdout);
+//
+//    MIMPI_Finalize();
+//    return 0;
+//}
+
+
 //
 //#include <stdbool.h>
 //#include <stdio.h>
+//#include <string.h>
 //#include "mimpi.h"
 //#include "examples/mimpi_err.h"
 //
