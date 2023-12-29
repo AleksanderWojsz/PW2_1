@@ -83,6 +83,7 @@ int main(int argc, char *argv[]) {
     active[n] = n;
     chsend(61, active, sizeof(int) * (n + 1));
 
+    // W pipe 62-63 będzie informacja o tym ile procesów czeka na barierze
     int waiting_on_barrier = 0;
     chsend(63, &waiting_on_barrier, sizeof(int));
 
