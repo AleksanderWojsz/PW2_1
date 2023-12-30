@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <string.h>
 #include "mimpi.h"
 #include "examples/mimpi_err.h"
 
@@ -10,8 +11,9 @@
 int main(int argc, char **argv)
 {
     MIMPI_Init(false);
-    int const world_rank = MIMPI_World_rank();
-
+    printf("before\n");
+    fflush(stdout);
+    int world_rank = MIMPI_World_rank();
     const char *delay = getenv("DELAY");
     if (delay)
     {
@@ -19,19 +21,22 @@ int main(int argc, char **argv)
         assert(res == 0);
     }
 
-    char number = 0;
-    if (world_rank == 0)
-        number = 42;
-    ASSERT_MIMPI_OK(MIMPI_Bcast(&number, 1, 0));
-    printf("Number: %d\n", number);
-    fflush(stdout);
+
+    if (world_rank != 0) {
+        MIMPI_Barrier();
+    }
+
+    MIMPI_Barrier();
+
 
     int res = unsetenv(WRITE_VAR);
     assert(res == 0);
-
+    printf("after\n");
     MIMPI_Finalize();
     return 0;
 }
+
+
 
 //#include <stdbool.h>
 //#include <stdio.h>

@@ -222,14 +222,14 @@ void MIMPI_Finalize() {
 
     notify_iam_out(); // Zabraniamy wysłać do nas wiadomości poprzez MIMPI_SEND
 
-//    for (int i = 0; i < MIMPI_World_size(); i++) { // Wysyłamy do pipe'ów od babiery, wiadomość z tagiem -1, że nas nie będzie
-//        void *message = malloc(512);
-//        memset(message, 0, 512);
-//        if (i != MIMPI_World_rank()) {
-//            send_message_to_pipe(get_barrier_write_desc(i), message, 512, -no_of_barrier - 1, false, 10); // Tag oznacza liczbe barier przez które przeszliśmy na minusie - 1
-//        }
-//        free(message);
-//    }
+    for (int i = 0; i < MIMPI_World_size(); i++) { // Wysyłamy do pipe'ów od babiery, wiadomość z tagiem -1, że nas nie będzie
+        void *message = malloc(512);
+        memset(message, 99, 512);
+        if (i != MIMPI_World_rank()) {
+            send_message_to_pipe(get_barrier_write_desc(i), message, 100, -no_of_barrier - 1, false, 13); // Tag oznacza liczbe barier przez które przeszliśmy na minusie - 1
+        }
+        free(message);
+    }
 
     // Wysyłamy wiadomości z tagiem -1 do samych siebie przez wszystkie pipe'y, żeby nasze wątki wiedziały, że mają się zakończyć
     for (int i = 0; i < MIMPI_World_size(); i++) {
@@ -422,13 +422,36 @@ void children_wake_up_and_send_data(int w, int i, int n, void* data, int count) 
 }
 
 
+bool check_if_remote_finished(int descriptor, void* foo_message, void* buffer, int* foo_count, int* fragment_tag) {
+    while (fragment_tag < 0) {
 
+        if (no_of_barrier == -(*fragment_tag) - 1) { // ktoś skończył ale jak przeszedł obecną barierę (nasz numer = ich numer)
+            someone_already_finished = true;
+        }
+        else if (no_of_barrier == -(*fragment_tag)) { // ktoś skończył i nie przeszedł obecnej bariery (nasz numer = ich numer + 1)
+            free(foo_message);
+            someone_already_finished = true;
+            no_of_barrier--;
+            return true;
+        }
+        else {
+            assert(0 == 1); // Nieobsłużona wiadomość specjalna
+        }
+        read_message_from_pom_pipe(descriptor, &buffer, foo_count, fragment_tag); // Czekamy na dowolną wiadomość
+    }
+    return false;
+}
 
 MIMPI_Retcode MIMPI_Bcast(
         void *data,
         int count,
         int root
 ) {
+    if (someone_already_finished == true) {
+        return MIMPI_ERROR_REMOTE_FINISHED;
+    }
+    no_of_barrier++; // To musi być po, bo przecież nie weszliśmy
+
     void* buffer = malloc(512);
     void* foo_message = malloc(512);
     memset(foo_message, 0, 512);
@@ -444,14 +467,76 @@ MIMPI_Retcode MIMPI_Bcast(
     if (world_rank == root) { // jesteśmy korzeniem
         read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na wiadomość od rodzica
 
+        while (fragment_tag < 0) {
+
+            if (no_of_barrier == -fragment_tag - 1) { // ktoś skończył ale jak przeszedł obecną barierę (nasz numer = ich numer)
+                someone_already_finished = true;
+            }
+            else if (no_of_barrier == -fragment_tag) { // ktoś skończył i nie przeszedł obecnej bariery (nasz numer = ich numer + 1)
+                free(foo_message);
+                someone_already_finished = true;
+                no_of_barrier--;
+                return MIMPI_ERROR_REMOTE_FINISHED;
+            }
+            else {
+                assert(0 == 1); // Nieobsłużona wiadomość specjalna
+            }
+            read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na dowolną wiadomość
+        }
+
         if (2 * ((w +i) % n) + 2 < world_size) { // Jak mamy prawe dziecko to czekamy na drugą wiadomość
             read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na wiadomość od rodzica
+            while (fragment_tag < 0) {
+                if (no_of_barrier == -fragment_tag - 1) { // ktoś skończył ale jak przeszedł obecną barierę
+                    someone_already_finished = true;
+                }
+                else if (no_of_barrier == -fragment_tag) { // ktoś skończył i nie przeszedł obecnej bariery
+                    free(foo_message);
+                    someone_already_finished = true;
+                    no_of_barrier--;
+                    return MIMPI_ERROR_REMOTE_FINISHED;
+                }
+                else {
+                    assert(0 == 1); // Nieobsłużona wiadomość specjalna
+                }
+                read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na dowolną wiadomość
+            }
         }
     }
     else if (2 * ((w +i) % n) + 1 < world_size) { // jesteśmy rodzicem niekorzeniem
         read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na wiadomość od rodzica
+        while (fragment_tag < 0) {
+            if (no_of_barrier == -fragment_tag - 1) { // ktoś skończył ale jak przeszedł obecną barierę
+                someone_already_finished = true;
+            }
+            else if (no_of_barrier == -fragment_tag) { // ktoś skończył i nie przeszedł obecnej bariery
+                free(foo_message);
+                someone_already_finished = true;
+                no_of_barrier--;
+                return MIMPI_ERROR_REMOTE_FINISHED;
+            }
+            else {
+                assert(0 == 1); // Nieobsłużona wiadomość specjalna
+            }
+            read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na dowolną wiadomość
+        }
         if (2 * ((w +i) % n) + 2 < world_size) { // Jak mamy prawe dziecko to czekamy na drugą wiadomość
             read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na wiadomość od rodzica
+            while (fragment_tag < 0) {
+                if (no_of_barrier == -fragment_tag - 1) { // ktoś skończył ale jak przeszedł obecną barierę
+                    someone_already_finished = true;
+                }
+                else if (no_of_barrier == -fragment_tag) { // ktoś skończył i nie przeszedł obecnej bariery
+                    free(foo_message);
+                    someone_already_finished = true;
+                    no_of_barrier--;
+                    return MIMPI_ERROR_REMOTE_FINISHED;
+                }
+                else {
+                    assert(0 == 1); // Nieobsłużona wiadomość specjalna
+                }
+                read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na dowolną wiadomość
+            }
         }
         chsend(get_barrier_write_desc(find_parent(root)), foo_message, 512); // wysyłamy wiadomość rodzicowi
     }
@@ -471,6 +556,22 @@ MIMPI_Retcode MIMPI_Bcast(
         void* read_message = malloc(496); // Ten bufor może zostać powiększony
         read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &read_message, &foo_count, &fragment_tag);
 
+        while (fragment_tag < 0) {
+            if (no_of_barrier == -fragment_tag - 1) { // ktoś skończył ale jak przeszedł obecną barierę
+                someone_already_finished = true;
+            }
+            else if (no_of_barrier == -fragment_tag) { // ktoś skończył i nie przeszedł obecnej bariery
+                free(foo_message);
+                someone_already_finished = true;
+                no_of_barrier--;
+                return MIMPI_ERROR_REMOTE_FINISHED;
+            }
+            else {
+                assert(0 == 1); // Nieobsłużona wiadomość specjalna
+            }
+            read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &read_message, &foo_count, &fragment_tag); // Czekamy na dowolną wiadomość
+        }
+
         // zapisujemy dane od root'a
         memcpy(data, read_message, count);
         free(read_message);
@@ -483,9 +584,26 @@ MIMPI_Retcode MIMPI_Bcast(
         void* read_message = malloc(496); // Ten bufor może zostać powiększony
         read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &read_message, &foo_count, &fragment_tag);
 
+        while (fragment_tag < 0) {
+            if (no_of_barrier == -fragment_tag - 1) { // ktoś skończył ale jak przeszedł obecną barierę (nasz numer = ich numer)
+                someone_already_finished = true;
+            }
+            else if (no_of_barrier == -fragment_tag - 1 + 1) { // ktoś skończył i nie przeszedł obecnej bariery (nasz numer = ich numer + 1)
+                free(foo_message);
+                someone_already_finished = true;
+                no_of_barrier--;
+                return MIMPI_ERROR_REMOTE_FINISHED;
+            }
+            else {
+                assert(0 == 1); // Nieobsłużona wiadomość specjalna
+            }
+            read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &read_message, &foo_count, &fragment_tag); // Czekamy na dowolną wiadomość
+        }
+
         // zapisujemy dane od root'a
         memcpy(data, read_message, count);
         free(read_message);
+
     }
 
     free(buffer);
