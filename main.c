@@ -30,40 +30,56 @@ int main(int argc, char **argv)
     uint8_t *data = malloc(data_size);
     assert(data);
     memset(data, 1, data_size);
-
     uint8_t *recv_data = malloc(data_size);
+
+
+
+    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
+    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
+    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
+    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
+    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
+    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
+    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
+    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
+    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
+    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
+    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
+
+    if (world_rank == 0) {
+        assert(data[0] == 1);
+//        printf("Number: %d\n", recv_data[0]);
+        for (int i = 1; i < data_size; ++i) {
+            assert(recv_data[i] == recv_data[0]);
+            fflush(stdout);
+        }
+    }
+
 
     if (world_rank == 0)
     {
-        uint8_t *recv_data = malloc(data_size);
-        assert(recv_data);
 
-
-        ASSERT_MIMPI_OK(MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0));
-
-
-
-        for (int i = 1; i < data_size; ++i)
-            assert(recv_data[i] == recv_data[0]);
-        printf("Number: %d\n", recv_data[0]);
-        fflush(stdout);
-        free(recv_data);
+        assert(MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0) == MIMPI_ERROR_REMOTE_FINISHED);
+//        printf("Number: %d\n", recv_data[0]); // Tutaj teoretycznie mogą być śmieci, ale recv data sie nie zmieni
     }
     else
     {
 
         if (world_rank != 1) {
-            ASSERT_MIMPI_OK(MIMPI_Reduce(data, NULL, data_size, MIMPI_SUM, 0));
+            assert((MIMPI_Reduce(data, NULL, data_size, MIMPI_SUM, 0)) == MIMPI_ERROR_REMOTE_FINISHED);
         }
-//        ASSERT_MIMPI_OK(MIMPI_Reduce(data, NULL, data_size, MIMPI_SUM, 0));
-
-
-
     }
+
+
+
+
+
+
     assert(data[0] == 1);
     for (int i = 1; i < data_size; ++i)
         assert(data[i] == data[0]);
     free(data);
+    free(recv_data);
 
     int res = unsetenv(WRITE_VAR);
     assert(res == 0);

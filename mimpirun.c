@@ -114,6 +114,8 @@ int main(int argc, char *argv[]) {
         waitpid(pids[i], NULL, 0);
     }
 
+
+
 //    for (int i = 0; i < n; i++) {
 //        for (int j = 0; j < n; j++) {
 //            printf("%d -> %d %d %d \n", i, j, desc[i][j][0], desc[i][j][1]);
