@@ -13,4 +13,5 @@ add_executable(PW2
         mimpi.c
         examples/hello.c
         moja.h
-        main.c)
+        main.c
+)
