@@ -25,9 +25,12 @@ int main(int argc, char **argv)
         ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, partner_rank, 1));
     }
 
-    printf("Przed bariera %d\n", world_rank);
-
     MIMPI_Barrier();
+
+    printf("po barierze %d\n", world_rank);
+
+    assert(MIMPI_Recv(&number, 1, partner_rank, 1) == MIMPI_ERROR_DEADLOCK_DETECTED);
+
 
     MIMPI_Finalize();
 

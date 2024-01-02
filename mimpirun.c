@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
     create_descriptors(n, desc, pom_desc);
 
     // W pipe 60-61 będą współdzielone dane: tablica 0-1 który proces jest w środku(1) a który nie(0), i licznik ile procesów jest w środku
-    int active[n + 1];
+    int active[n + 1]; // TODO malloc
     for (int i = 0; i < n; i++) {
         active[i] = 1;
     }
