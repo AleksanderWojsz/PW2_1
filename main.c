@@ -9,8 +9,6 @@
 #include "examples/test.h"
 #include "examples/mimpi_err.h"
 
-#define NS_PER_1_MS 1 ## 000 ## 000
-
 int main(int argc, char **argv)
 {
     MIMPI_Init(true);
@@ -19,13 +17,18 @@ int main(int argc, char **argv)
     int const world_rank = MIMPI_World_rank();
     int partner_rank = (world_rank / 2 * 2) + 1 - world_rank % 2;
 
-    char number = 'a';
-    if (world_rank == 0) {
+    char number = '2';
+    if (world_rank % 2 == 0) {
         ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, partner_rank, 1));
     }
-    else if (world_rank == 1) {
+    else if (world_rank % 2 == 1) {
         ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, partner_rank, 1));
     }
+
+    printf("Przed bariera %d\n", world_rank);
+
+    MIMPI_Barrier();
+
     MIMPI_Finalize();
 
     printf("ok %d\n", world_rank);
