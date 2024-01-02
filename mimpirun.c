@@ -9,7 +9,7 @@
 #include <stdio.h>
 
 #define OVERWRITE 1
-#define POM_PIPES 25 // n^2 pipeów zaczyna się od 70, blokada od 20 do 59, pomocnicze od 60 do 69
+#define POM_PIPES 50 // n^2 pipeów zaczyna się od 120, blokada od 20 do 59, pomocnicze od 60 do 69, zakleszczenia od 70 do 119
 
 void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
 
@@ -86,6 +86,21 @@ int main(int argc, char *argv[]) {
     // W pipe 62-63 będzie informacja o tym ile procesów czeka na barierze
     int waiting_on_barrier = 0;
     chsend(63, &waiting_on_barrier, sizeof(int));
+
+
+    int waiting_data[n];
+    memset(waiting_data, -1, sizeof(int) * n);
+
+    chsend(111, waiting_data, sizeof(int) * n); // C
+    chsend(113, waiting_data, sizeof(int) * n); // A
+    chsend(115, waiting_data, sizeof(int) * n); // source
+    chsend(117, waiting_data, sizeof(int) * n); // count
+    chsend(119, waiting_data, sizeof(int) * n); // tag
+
+
+
+
+
 
     pid_t pids[n]; // pid'y dzieci
     for (int i = 0; i < n; i++) {

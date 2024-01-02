@@ -1,138 +1,42 @@
-//#include <stdbool.h>
-//#include <stdio.h>
-//#include <string.h>
-//#include <unistd.h>
-//#include <assert.h>
-//#include "mimpi.h"
-//#include "examples/mimpi_err.h"
-//
-//#define WRITE_VAR "CHANNELS_WRITE_DELAY"
-//
-//int main(int argc, char **argv)
-//{
-//    MIMPI_Init(false);
-//    printf("before\n");
-//    fflush(stdout);
-//    const char *delay = getenv("DELAY");
-//    if (delay)
-//    {
-//        int res = setenv(WRITE_VAR, delay, true);
-//        assert(res == 0);
-//    }
-//    ASSERT_MIMPI_OK(MIMPI_Barrier());
-//    int res = unsetenv(WRITE_VAR);
-//    assert(res == 0);
-//    printf("after\n");
-//    MIMPI_Finalize();
-//    return 0;
-//}
-//
-//// time DELAY=100 ./mimpirun 15 examples_build/broadcast
-
-
-#include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <assert.h>
-#include <string.h>
-#include <stdint.h>
-#include "mimpi.h"
-#include "examples/mimpi_err.h"
-#define WRITE_VAR "CHANNELS_WRITE_DELAY"
-
-
+#include <errno.h>
 #include <stdbool.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
-#include <string.h>
-#include <stdint.h>
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
 #include "mimpi.h"
+#include "examples/test.h"
 #include "examples/mimpi_err.h"
-#define WRITE_VAR "CHANNELS_WRITE_DELAY"
 
-// TODO reduce remote finished
+#define NS_PER_1_MS 1 ## 000 ## 000
+
 int main(int argc, char **argv)
 {
-    size_t data_size = 1;
-    if (argc > 1)
-    {
-        data_size = atoi(argv[1]);
-    }
+    MIMPI_Init(true);
+//    MIMPI_Init(false);
 
-    MIMPI_Init(false);
     int const world_rank = MIMPI_World_rank();
+    int partner_rank = (world_rank / 2 * 2) + 1 - world_rank % 2;
 
-    const char *delay = getenv("DELAY");
-    if (delay)
-    {
-        int res = setenv(WRITE_VAR, delay, true);
-        assert(res == 0);
-    }
-
-    uint8_t *data = malloc(data_size);
-    assert(data);
-    memset(data, 1, data_size);
-    uint8_t *recv_data = malloc(data_size);
-
-
-
-//    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
-//    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
-//    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
-//    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
-//    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
-//    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
-//    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
-//    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
-//    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
-//    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
-//    assert((MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0)) == MIMPI_SUCCESS);
-
+    char number = 'a';
     if (world_rank == 0) {
-        assert(data[0] == 1);
-//        printf("Number: %d\n", recv_data[0]);
-        for (int i = 1; i < data_size; ++i) {
-            assert(recv_data[i] == recv_data[0]);
-            fflush(stdout);
-        }
+        ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, partner_rank, 1));
     }
-
-
-    if (world_rank == 0)
-    {
-
-        assert(MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0) == MIMPI_ERROR_REMOTE_FINISHED);
-//        printf("Number: %d\n", recv_data[0]); // Tutaj teoretycznie mogą być śmieci, ale recv data sie nie zmieni
+    else if (world_rank == 1) {
+        ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, partner_rank, 1));
     }
-    else
-    {
-
-        if (world_rank != 1) {
-            assert((MIMPI_Reduce(data, NULL, data_size, MIMPI_SUM, 0)) == MIMPI_ERROR_REMOTE_FINISHED);
-        }
-    }
-
-
-    printf("ok\n");
-
-
-    assert(data[0] == 1);
-    for (int i = 1; i < data_size; ++i)
-        assert(data[i] == data[0]);
-    free(data);
-    free(recv_data);
-
-    int res = unsetenv(WRITE_VAR);
-    assert(res == 0);
-
     MIMPI_Finalize();
+
+    printf("ok %d\n", world_rank);
+
     return 0;
 }
 
 
 
 
+// ./mimpirun 2 valgrind --track-origins=yes --leak-check=full --max-stackframe=4000032 ./main
 
 // TODO czy MIMPI_ERROR_REMOTE_FINISHED trzeba sprawdzać tylko w MIMPI_BARRIER
 
@@ -142,6 +46,8 @@ int main(int argc, char **argv)
 // TODO co jak na starcie będzie zajęty deskryptor 19
 // TODO szukanie wiadomosci nie od poczatku
 // TODO chsend zwraca EPIPE jeśli koniec do odczytu łącza jest zamknięty więc możesz wiedzieć od razu że nie da się wysłać
+
+// TODO nie wiemy chyba czy do odczytu bedzie parzysty czy nieparzysty deskryptor wiec moze trzeba to uwzglednic (teraz do read jest parzysty)
 
 // TODO co miało być wysłane przed barierą będzie wysłane bo send musi się skończyć
 // TODO nie przeszkadza nam że nie wszystko będzie odebrane podczas beriery (gdzie indziej też nam nie przeszkadza)
