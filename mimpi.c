@@ -41,7 +41,6 @@ int MIMPI_World_rank() {
 
 
 Message* sent_messages = NULL;
-bool finished_deadlock[16] = {false};
 
 // zakleszczenia od 70 do 119
 // 111 C
@@ -52,6 +51,7 @@ bool finished_deadlock[16] = {false};
 
 bool deadlock_detection = false;
 
+// mutexy
 int get_deadlock_read_desc(int rank) {
     return 70 + rank * 2;
 }
@@ -91,16 +91,18 @@ void notify_that_message_received(int who_sent_it_to_us, int count, int tag) {
     int no_of_messages;
     chrecv(get_deadlock_counter_read_desc(who_sent_it_to_us), &no_of_messages, sizeof(int)); // Też jako mutex
     no_of_messages++;
-    printf("0\n");
     chsend(get_deadlock_received_write_desc(who_sent_it_to_us), message, sizeof(int) * 3);
-    printf("1\n");
     chsend(get_deadlock_counter_write_desc(who_sent_it_to_us), &no_of_messages, sizeof(int));
 }
 
+Message* odczytane_wiadomosci_deadlock = NULL;
+bool finished_deadlock[16] = {false};
+bool rodzic_czeka_na_odczytanie_wszystkich = false;
+pthread_mutex_t mutex_pipes;
+pthread_mutex_t parent_sleeping;
+
 
 bool check_for_deadlock_in_receive(void* data, int count_arg, int source_arg, int tag_arg) {
-
-//    printf("Jestem %d, - 0 \n", world_rank);
 
     // dodajemy nasze zgłoszenie
     int c[world_size];
@@ -121,35 +123,36 @@ bool check_for_deadlock_in_receive(void* data, int count_arg, int source_arg, in
     count[world_rank] = count_arg;
     tag[world_rank] = tag_arg;
 
-//    printf("Jestem %d, - 1 \n", world_rank);
     while (true) {
 
         // usuwamy z listy wysłanych wiadomości te, które już ktoś odebrał
         int no_of_messages_to_remove;
-        chrecv(get_deadlock_counter_read_desc(world_rank), &no_of_messages_to_remove, sizeof(int)); // Też jako mutex
-//        printf("Jestem %d, - 2 \n", world_rank);
-        for (int i = 0; i < no_of_messages_to_remove; i++) {
-            int message[3];
-            chrecv(get_deadlock_received_read_desc(world_rank), message, sizeof(int) * 3);
-            list_remove(&sent_messages, message[1], message[0], message[2]);
-        }
-        no_of_messages_to_remove = 0;
+        chrecv(get_deadlock_counter_read_desc(world_rank), &no_of_messages_to_remove, sizeof(int));
         chsend(get_deadlock_counter_write_desc(world_rank), &no_of_messages_to_remove, sizeof(int));
-//        printf("Jestem %d, - 3 \n", world_rank);
+        if (no_of_messages_to_remove > 0) {
+            rodzic_czeka_na_odczytanie_wszystkich = true;
+            pthread_mutex_lock(&parent_sleeping); // jak są jeszcze jakies nieodbrane wiadomości to czekamy
+        }
+
+        chrecv(get_deadlock_counter_read_desc(world_rank), &no_of_messages_to_remove, sizeof(int)); // Jako mutex
+        // Usuwamy odczytane wiadomości z listy wysłanych
+        while (odczytane_wiadomosci_deadlock != NULL) {
+            list_remove(&sent_messages, odczytane_wiadomosci_deadlock->count, odczytane_wiadomosci_deadlock->source, odczytane_wiadomosci_deadlock->tag);
+            odczytane_wiadomosci_deadlock = odczytane_wiadomosci_deadlock->next;
+        }
+        list_clear(&odczytane_wiadomosci_deadlock);
+        chsend(get_deadlock_counter_write_desc(world_rank), &no_of_messages_to_remove, sizeof(int));
+
 
         // Przetwarzamy zgłoszenia
         for(int i = 0; i < world_size; i++) {
-//            printf("Jestem %d, - 4 \n", world_rank);
             if (source[i] == world_rank) { // jak ktoś na nas czeka
                 Message* message = list_find(sent_messages, count[i], i, tag[i]); // sprawdzamy, czy mamy dla niego wiadomosc
 
                 if (message != NULL) { // mamy dla kogoś wiadomość, więc nic nie robimy
-//                    printf("Jestem %d, - 5 \n", world_rank);
                 }
                 else { // nie ma wiadomości więc potwierdzamy
                     a[i] = 1; // approved
-
-//                    printf("Jestem %d, - 6 \n", world_rank);
 
                     // budzimy
                     void* foo_message = malloc(512);
@@ -160,15 +163,12 @@ bool check_for_deadlock_in_receive(void* data, int count_arg, int source_arg, in
             }
         }
 
-//        printf("Jestem %d, - 7 \n", world_rank);
         if (a[world_rank] == 1 && c[world_rank] != 1 && source[source_arg] == world_rank && a[source_arg] == 1 && c[source_arg] != 1) { // jak my na pewno czekamy, nie byliśmy już wcześniej w cyklu, i ktos jest z nami w cyklu // TODO tutaj też drugi proces musi miec A i nie C?
-//            printf("Jestem %d, - 8 \n", world_rank);
             c[world_rank] = 1; // jestesmy w cyklu
             c[source_arg] = 1; // oznaczamy, że ktoś jest z nami w cyklu
         }
 
         if (c[world_rank] == 1) { // jak jesteśmy w cyklu, to usuwamy nasz wpis i wychodzimy
-//            printf("Jestem %d, - 9 \n", world_rank);
             c[world_rank] = -1;
             a[world_rank] = -1;
             source[world_rank] = -1;
@@ -182,8 +182,6 @@ bool check_for_deadlock_in_receive(void* data, int count_arg, int source_arg, in
 
             return true;
         }
-
-//        printf("Jestem %d, - 10 \n", world_rank);
 
         // Oddajemy tablice
         chsend(111, c, sizeof(int) * world_size);
@@ -199,15 +197,12 @@ bool check_for_deadlock_in_receive(void* data, int count_arg, int source_arg, in
             int fragment_tag;
             int who_finished;
             void* foo_message = malloc(512);
-//            printf("Jestem %d, - 11 \n", world_rank);
             chrecv(get_deadlock_read_desc(world_rank), foo_message, 512);
-//            printf("Jestem %d, - 12 \n", world_rank);
             memcpy(&fragment_tag, foo_message + sizeof(int) * 2, sizeof(int));
             memcpy(&who_finished, foo_message + sizeof(int) * 3, sizeof(int));
 
             if (fragment_tag < 0) {
                 if (fragment_tag == -1) {
-//                    printf("Jestem %d, - 13 \n", world_rank);
                     finished_deadlock[who_finished] = true;
                     if (who_finished == source_arg) { // odczytaliśmy wiadomość, że ten na kogo czekamy skończył więc nie będzie z nim deadlocka
                         free(foo_message);
@@ -219,7 +214,6 @@ bool check_for_deadlock_in_receive(void* data, int count_arg, int source_arg, in
                 }
                 else if (fragment_tag == -2) { // wątek nas obudził, bo mamy wiadomość
                     // usuwamy nasz wpis i wychodzimy
-//                    printf("Jestem %d, - 14 \n", world_rank);
 
                     chrecv(110, c, sizeof(int) * world_size);
                     chrecv(112, a, sizeof(int) * world_size);
@@ -245,14 +239,12 @@ bool check_for_deadlock_in_receive(void* data, int count_arg, int source_arg, in
                 }
             }
             else{ // (fragment_tag >= 0) Ktos nas obudził, bo przetworzył naszą wiadomość
-//                printf("Jestem %d, - 15 \n", world_rank);
                 break;
             }
 
             free(foo_message);
         }
 
-//        printf("Jestem %d, - 16 \n", world_rank);
         chrecv(110, c, sizeof(int) * world_size);
         chrecv(112, a, sizeof(int) * world_size);
         chrecv(114, source, sizeof(int) * world_size);
@@ -351,8 +343,6 @@ void read_message_from_pom_pipe(int descriptor, void** result_buffer, int* count
 }
 
 
-pthread_mutex_t mutex_pipes;
-pthread_mutex_t parent_sleeping;
 
 int waiting_count = -10;
 int waiting_source = -10;
@@ -386,7 +376,6 @@ void *read_messages_from_source(void *src) {
             // TODO sprawdzenie deadlocka robimy tylko jak tag jest >= 0, wiec wątek nie będzie czekał konkretnie na specjalną wiadomość
             // TODO zakładamy że z wiadomościami specjalnymi nie ma zakleszczeń
             if (deadlock_detection == true && fragment_tag >= 0) {
-//                printf("Jestem %d, mój wątek odebrał wiadomość: source %d, tag %d, count %d \n", world_rank, source, fragment_tag, count);
                 void *message = malloc(512);
                 memset(message, 0, 512);
                 int tag = -2;
@@ -411,7 +400,48 @@ void *read_messages_from_source(void *src) {
     return NULL;
 }
 
+
+
+
+
+void *czytaj_odczytane_wiadomosci_deadlock() {
+
+    // Czytamy wiadomości które ktoś już odebrał i zapisujemy je na listę
+    while (true) {
+        int message[3];
+        chrecv(get_deadlock_received_read_desc(world_rank), message, sizeof(int) * 3);
+
+        int no_of_messages_to_remove;
+        chrecv(get_deadlock_counter_read_desc(world_rank), &no_of_messages_to_remove, sizeof(int)); // Też jako mutex
+        if (message[2] == -1) {
+            chsend(get_deadlock_counter_write_desc(world_rank), &no_of_messages_to_remove, sizeof(int)); // Oddajemy mutexa
+            return NULL;
+        }
+        list_add(&odczytane_wiadomosci_deadlock, NULL, message[1], message[0], message[2]);
+        for (int i = 0; i < no_of_messages_to_remove - 1; i++) { // -1 bo juz pierwszą wiadomość odczytaliśmy
+            list_add(&odczytane_wiadomosci_deadlock, NULL, message[1], message[0], message[2]);
+            chrecv(get_deadlock_received_read_desc(world_rank), message, sizeof(int) * 3);
+            if (message[2] == -1) {
+                chsend(get_deadlock_counter_write_desc(world_rank), &no_of_messages_to_remove, sizeof(int)); // Oddajemy mutexa
+                return NULL;
+            }
+        }
+        no_of_messages_to_remove = 0;
+
+        if (rodzic_czeka_na_odczytanie_wszystkich == true) {
+            rodzic_czeka_na_odczytanie_wszystkich = false;
+            pthread_mutex_unlock(&parent_sleeping);
+        }
+        chsend(get_deadlock_counter_write_desc(world_rank), &no_of_messages_to_remove, sizeof(int));
+    }
+
+    return NULL;
+}
+
+
+
 pthread_t threads[16];
+pthread_t czytajacy_odczytane_wiadomosci_deadlock;
 
 void MIMPI_Init(bool enable_deadlock_detection) {
 
@@ -435,6 +465,12 @@ void MIMPI_Init(bool enable_deadlock_detection) {
             pthread_create(&threads[i], NULL, read_messages_from_source, source);
         }
     }
+
+    // wątek czytający odczytane wiadomosci
+    if (deadlock_detection == true) {
+        pthread_create(&czytajacy_odczytane_wiadomosci_deadlock, NULL, czytaj_odczytane_wiadomosci_deadlock, NULL);
+    }
+
 }
 
 int send_message_to_pipe(int descriptor, void const *data, int count, int tag, bool check_if_dest_active, int destination) {
@@ -450,7 +486,6 @@ int send_message_to_pipe(int descriptor, void const *data, int count, int tag, b
         if (check_if_dest_active && is_in_MPI_block(destination) == false) {
             return MIMPI_ERROR_REMOTE_FINISHED;
         }
-//        printf("Wysylam czesc %d z %d, jestem %d \n", i + 1, liczba_czesci, MIMPI_World_rank());
 
         int current_message_size = max_message_size;
         if (i == liczba_czesci - 1) { // ostatnia część wiadomości
@@ -468,7 +503,6 @@ int send_message_to_pipe(int descriptor, void const *data, int count, int tag, b
 
         // Wysyłanie wiadomości
         chsend(descriptor, message, 512);
-//        printf("jestem %d, skonczylem\n", MIMPI_World_rank());
         nr_czesci++;
         free(message);
     }
@@ -511,6 +545,17 @@ void MIMPI_Finalize() {
                 free(message);
             }
         }
+
+        // TODO powiedzieliśmy już że nie mozna wysyłać do nas wiadomości, teraz kończymy wątek
+//
+//        MIMPI_Barrier();
+
+        int message[3];
+        message[0] = 10;
+        message[1] = 10;
+        message[2] = -1;
+        chsend(get_deadlock_received_write_desc(world_rank), message, sizeof(int) * 3);
+        pthread_join(czytajacy_odczytane_wiadomosci_deadlock, NULL);
     }
 
 
@@ -543,6 +588,7 @@ void MIMPI_Finalize() {
 
     list_clear(&received_list);
     list_clear(&sent_messages);
+    list_clear(&odczytane_wiadomosci_deadlock);
 
     // wysyłamy wszystkim innym wiadomość z tagiem OUT_OF_MPI_BLOCK (-1) oznaczającą, że skończyliśmy
     for (int i = 0; i < MIMPI_World_size(); i++) {
@@ -638,7 +684,7 @@ MIMPI_Retcode MIMPI_Recv(
         list_remove(&received_list, count, source, tag); // Usunięcie wiadomości z listy
         pthread_mutex_unlock(&mutex_pipes);
 
-        if (deadlock_detection) {
+        if (deadlock_detection && is_in_MPI_block(source) == true && tag >= 0) {
             notify_that_message_received(source, count, tag);
         }
 
@@ -657,7 +703,9 @@ MIMPI_Retcode MIMPI_Recv(
         }
     }
 
+
     pthread_mutex_lock(&parent_sleeping); // idziemy spać
+
 
     // W tym miejscu na liście jest już nasza wiadomość, tylko musimy ją znaleźć
     pthread_mutex_lock(&mutex_pipes);
@@ -676,10 +724,10 @@ MIMPI_Retcode MIMPI_Recv(
     }
     memcpy(data, message->data, message->count); // Przepisanie danych do bufora użytkownika
     list_remove(&received_list, count, source, tag); // Usunięcie wiadomości z listy
-
     pthread_mutex_unlock(&mutex_pipes);
 
-    if (deadlock_detection) {
+
+    if (deadlock_detection && is_in_MPI_block(source) == true && tag >= 0) {
         notify_that_message_received(source, count, tag);
     }
 
@@ -1021,8 +1069,6 @@ MIMPI_Retcode MIMPI_Reduce(
                 if (j == 0) {
                     pierwsza_ranga = ranga_nadawcy;
                 }
-
-//                printf("Jestem %d, ranga nadawcy: %d, rozmiar wiadomosc %d\n", world_rank, ranga_nadawcy, current_message_size);
 
                 if (ranga_nadawcy == pierwsza_ranga) {
                     memcpy(array_1 + received_1, buffer + sizeof(int) * META_INFO_SIZE, current_message_size);

@@ -39,8 +39,14 @@ void list_print(Message *head) {
 // Dodawanie nowego elementu na koniec listy
 void list_add(Message **head, void const *data, int count, int source, int tag) {
     Message *new_message = malloc(sizeof(Message));
-    new_message->data = malloc(count);
-    memcpy(new_message->data, data, count);
+
+    if (data != NULL) {
+        new_message->data = malloc(count);
+        memcpy(new_message->data, data, count);
+    } else {
+        new_message->data = NULL;
+    }
+
     new_message->count = count;
     new_message->source = source;
     new_message->tag = tag;
@@ -103,6 +109,8 @@ void list_clear(Message **head) {
     }
     *head = NULL;
 }
+
+
 
 // Znajdowanie pierwszego elementu o wskazanym count, source, tag (lub tag == 0)
 Message *list_find_with_last(Message *head, int count, int source, int tag, Message **last) {

@@ -12,35 +12,28 @@
 // TODO czy duzo wiadomosci zakleszcza sprawdzanie zakleszczen
 // lista odebranych wiadomosci jest za duza
 
-#define NUMBER 1000
-int main(int argc, char **argv)
-{
-//    MIMPI_Init(false);
-    MIMPI_Init(true);
+int main() {
+    MIMPI_Init(0);
 
-    int const world_rank = MIMPI_World_rank();
-    int partner_rank = (world_rank / 2 * 2) + 1 - world_rank % 2;
-
-
-    char number = '2';
-
-    for (int i = 0; i < NUMBER; i++) {
-        if (world_rank % 2 == 0) {
-            ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, partner_rank, 17));
-        }
-        else if (world_rank % 2 == 1) {
-            ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, partner_rank, 17));
+    if (MIMPI_World_rank() != 0) {
+        int a[10];
+        for (int i = 0; i < 1000000; i++) {
+            MIMPI_Send(a, 10 * sizeof(int), 0, MIMPI_ANY_TAG);
         }
     }
 
-
-
+    MIMPI_Barrier();
+    printf("Done!\n");
     MIMPI_Finalize();
-    printf("ok %d\n", world_rank);
 
-    return 0;
+    return test_success();
 }
 
+// ./run_test 10s 6 examples_build/extended_pipe_closed
+// ./run_test 30s 3 ./examples_build/send_any_size 2147483647 0 1
+
+// extended pipe closed
+// send any size
 
 // printf("ok\n");
 
@@ -62,6 +55,8 @@ int main(int argc, char **argv)
 // TODO bo to co odebraliśmy/będziemy odbierali interesuje nas tylko jak robimy receive
 
 
+// TODO cos zmienial w jakims tescie any size czy cos
+
 // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory
 // https://pubs.opengroup.org/onlinepubs/009604599/functions/pipe.html
 // https://stackoverflow.com/questions/29852077/will-a-process-writing-to-a-pipe-block-if-the-pipe-is-full#comment47830197_29852077 - write do pełnego pipe'a jest blokujący, read z pustego też
@@ -80,6 +75,7 @@ int main(int argc, char **argv)
  chmod +x test
 
  chmod -R 777 ścieżka/do/folderu
+ chmod -R 777 *
 
 for i in {1..100}
 do
