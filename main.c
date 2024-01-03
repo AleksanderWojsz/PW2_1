@@ -9,38 +9,40 @@
 #include "examples/test.h"
 #include "examples/mimpi_err.h"
 
+// TODO czy duzo wiadomosci zakleszcza sprawdzanie zakleszczen
+// lista odebranych wiadomosci jest za duza
+
+#define NUMBER 1000
 int main(int argc, char **argv)
 {
-    MIMPI_Init(true);
 //    MIMPI_Init(false);
+    MIMPI_Init(true);
 
     int const world_rank = MIMPI_World_rank();
     int partner_rank = (world_rank / 2 * 2) + 1 - world_rank % 2;
 
+
     char number = '2';
-    if (world_rank % 2 == 0) {
-        ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, partner_rank, 1));
+
+    for (int i = 0; i < NUMBER; i++) {
+        if (world_rank % 2 == 0) {
+            ASSERT_MIMPI_OK(MIMPI_Recv(&number, 1, partner_rank, 17));
+        }
+        else if (world_rank % 2 == 1) {
+            ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, partner_rank, 17));
+        }
     }
-    else if (world_rank % 2 == 1) {
-        ASSERT_MIMPI_OK(MIMPI_Send(&number, 1, partner_rank, 1));
-    }
 
-    MIMPI_Barrier();
-
-    printf("po barierze %d\n", world_rank);
-
-    assert(MIMPI_Recv(&number, 1, partner_rank, 1) == MIMPI_ERROR_DEADLOCK_DETECTED);
 
 
     MIMPI_Finalize();
-
     printf("ok %d\n", world_rank);
 
     return 0;
 }
 
 
-
+// printf("ok\n");
 
 // ./mimpirun 2 valgrind --track-origins=yes --leak-check=full --max-stackframe=4000032 ./main
 

@@ -9,7 +9,20 @@
 #include <stdio.h>
 
 #define OVERWRITE 1
-#define POM_PIPES 50 // n^2 pipeów zaczyna się od 120, blokada od 20 do 59, pomocnicze od 60 do 69, zakleszczenia od 70 do 119
+#define POM_PIPES 90
+
+// bariera od 20 do 59
+// pomocnicze od 60 do 69
+// zakleszczenia semafory od 70 do 109 + od 110 do 119 na zgłoszenia + od 120 do 159 na odebrane wiadomości + od 160 do 199 na liczniki(mutexy)
+// n^2 pipeów zaczyna się od 200
+
+int get_deadlock_counter_read_desc(int rank) {
+    return 160 + rank * 2;
+}
+
+int get_deadlock_counter_write_desc(int rank) {
+    return get_deadlock_counter_read_desc(rank) + 1;
+}
 
 void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
 
@@ -99,6 +112,10 @@ int main(int argc, char *argv[]) {
 
 
 
+    int no_of_messages_to_remove = 0;
+    for (int i = 0; i < n; i++) {
+        chsend(get_deadlock_counter_write_desc(i), &no_of_messages_to_remove, sizeof(int));
+    }
 
 
 
