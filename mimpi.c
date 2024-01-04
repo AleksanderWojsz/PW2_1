@@ -13,6 +13,7 @@
 #define POM_PIPES 90
 #define OUT_OF_MPI_BLOCK (-1)
 #define META_INFO_SIZE 4
+#define MAX_N 16
 
 Message* received_list = NULL;
 bool finished[16] = {false};
@@ -51,7 +52,7 @@ int check_arguments_correctness(int other_process_rank) {
 }
 
 void notify_iam_out() {
-    int is_active[MIMPI_World_size()];
+    int is_active[MAX_N];
     chrecv(60, is_active, sizeof(int) * MIMPI_World_size());
     is_active[MIMPI_World_rank()] = 0;
     chsend(61, is_active, sizeof(int) * MIMPI_World_size());
@@ -63,7 +64,7 @@ bool is_in_MPI_block(int nr) {
         return false;
     }
 
-    int is_active[MIMPI_World_size()];
+    int is_active[MAX_N];
     chrecv(60, is_active, sizeof(int) * MIMPI_World_size());
     bool result = (is_active[nr] == 1);
     chsend(61, is_active, sizeof(int) * MIMPI_World_size());
@@ -140,11 +141,11 @@ pthread_mutex_t unread_messages_sleeping;
 bool check_for_deadlock_in_receive(int count_arg, int source_arg, int tag_arg) {
 
     // dodajemy nasze zgłoszenie
-    int c[world_size];
-    int a[world_size];
-    int source[world_size];
-    int count[world_size];
-    int tag[world_size];
+    int c[MAX_N];
+    int a[MAX_N];
+    int source[MAX_N];
+    int count[MAX_N];
+    int tag[MAX_N];
 
     chrecv(110, c, sizeof(int) * world_size);
     chrecv(112, a, sizeof(int) * world_size);
