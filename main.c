@@ -68,7 +68,7 @@ int main(int argc, char **argv)
 
 
 
-
+// Wszystkie wiadomości mają rozmiar 512B, jak wiadomość jest za mała, to jest dopełniana zerami
 // TODO assert_sys_ok
 // TODO wiadomości mniejsze niz 512B
 // TODO szukanie wiadomosci nie od poczatku
