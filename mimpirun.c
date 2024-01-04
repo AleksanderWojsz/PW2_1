@@ -28,16 +28,19 @@ void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
 
     int foo[20][2]; // Do zajęcia aż do 19 deskryptora włącznie
 
-    // Zajmowanie do 19 deskryptora
-    int k = 0;
-    do {
-        k++;
-        channel(foo[k - 1]);
-    } while (foo[k - 1][0] <= 18 && foo[k - 1][1] <= 18);
-    if (foo[k - 1][1] == 20) {
-        close(foo[k - 1][1]);
-        foo[k - 1][1] = -1;
+    int index = 0;
+    channel(foo[index]);
+    while (foo[index][1] != 20 && foo[index][1] != 21) {
+        index++;
+        channel(foo[index]);
     }
+
+
+    close(20);
+    if (foo[index][1] == 21) {
+        close(21);
+    }
+
 
     // Zajmowanie pomocniczych 'POM_PIPES' pipeów
     for (int i = 0; i < POM_PIPES; i++) {
@@ -48,15 +51,15 @@ void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
     for (int i = 0; i < n; i++) { // Tworzenie potoków
         for (int j = 0; j < n; j++) {
             channel(desc[i][j]);
-//            printf("%d -> %d %d %d \n", i, j, desc[i][j][1], desc[i][j][0]);
         }
     }
 
-    // Zamykanie deskryptorów do 19 włącznie
-    for (int i = 0; i < k; i++) { // Zwalnianie deskryptorów
-        close(foo[i][0]);
-
-        if (foo[i][1] != -1) {
+    // Zamykanie deskryptorów, które otworzyliśmy do 19 włącznie
+    for (int i = 0; i <= index; i++) {
+        if (foo[i][0] <= 19) {
+            close(foo[i][0]);
+        }
+        if (foo[i][1] <= 19) {
             close(foo[i][1]);
         }
     }
