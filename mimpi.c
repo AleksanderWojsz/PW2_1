@@ -274,11 +274,10 @@ int check_arguments_correctness(int other_process_rank) {
 }
 
 void notify_iam_out() {
-    int is_active[MIMPI_World_size() + 1];
-    chrecv(60, is_active, sizeof(int) * (MIMPI_World_size() + 1));
+    int is_active[MIMPI_World_size()];
+    chrecv(60, is_active, sizeof(int) * MIMPI_World_size());
     is_active[MIMPI_World_rank()] = 0;
-    is_active[MIMPI_World_size()]--;
-    chsend(61, is_active, sizeof(int) * (MIMPI_World_size() + 1));
+    chsend(61, is_active, sizeof(int) * MIMPI_World_size());
 }
 
 bool is_in_MPI_block(int nr) {
@@ -287,10 +286,10 @@ bool is_in_MPI_block(int nr) {
         return false;
     }
 
-    int is_active[MIMPI_World_size() + 1];
-    chrecv(60, is_active, sizeof(int) * (MIMPI_World_size() + 1));
+    int is_active[MIMPI_World_size()];
+    chrecv(60, is_active, sizeof(int) * MIMPI_World_size());
     bool result = (is_active[nr] == 1);
-    chsend(61, is_active, sizeof(int) * (MIMPI_World_size() + 1));
+    chsend(61, is_active, sizeof(int) * MIMPI_World_size());
     return result;
 }
 

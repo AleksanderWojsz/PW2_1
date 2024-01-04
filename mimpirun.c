@@ -10,6 +10,7 @@
 
 #define OVERWRITE 1
 #define POM_PIPES 90
+#define MAX_N 16
 
 // bariera od 20 do 59
 // pomocnicze od 60 do 69
@@ -24,7 +25,7 @@ int get_deadlock_counter_write_desc(int rank) {
     return get_deadlock_counter_read_desc(rank) + 1;
 }
 
-void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
+void create_descriptors(int n, int desc[MAX_N][MAX_N][2], int pom_desc[POM_PIPES][2]) {
 
     int foo[20][2]; // Do zajęcia aż do 19 deskryptora włącznie
 
@@ -34,13 +35,10 @@ void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
         index++;
         channel(foo[index]);
     }
-
-
     close(20);
     if (foo[index][1] == 21) {
         close(21);
     }
-
 
     // Zajmowanie pomocniczych 'POM_PIPES' pipeów
     for (int i = 0; i < POM_PIPES; i++) {
@@ -65,7 +63,7 @@ void create_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
     }
 }
 
-void close_descriptors(int n, int desc[n][n][2], int pom_desc[POM_PIPES][2]) {
+void close_descriptors(int n, int desc[MAX_N][MAX_N][2], int pom_desc[POM_PIPES][2]) {
     // zamykanie 'POM_PIPES' pipe'ów
     for (int i = 0; i < POM_PIPES; i++) {
         close(pom_desc[i][0]);
@@ -87,41 +85,34 @@ int main(int argc, char *argv[]) {
     char* program = argv[2]; // Ścieżka do programu
 
     int pom_desc[POM_PIPES][2]; // 'POM_PIPES' pipeów do współdzielenie danych między wszystkimi procesami
-    int desc[n][n][2]; // [skąd][dokąd][0 - write, 1 - read]
+    int desc[MAX_N][MAX_N][2]; // [skąd][dokąd][0 - write, 1 - read]
 
     create_descriptors(n, desc, pom_desc);
 
-    // W pipe 60-61 będą współdzielone dane: tablica 0-1 który proces jest w środku(1) a który nie(0), i licznik ile procesów jest w środku
-    int active[n + 1]; // TODO malloc
+    // W pipe 60-61 będą współdzielone dane: tablica 0-1 który proces jest w środku(1) a który nie(0)
+    int active[MAX_N];
     for (int i = 0; i < n; i++) {
         active[i] = 1;
     }
-    active[n] = n;
-    chsend(61, active, sizeof(int) * (n + 1));
+    chsend(61, active, sizeof(int) * n);
 
-    // W pipe 62-63 będzie informacja o tym ile procesów czeka na barierze
-    int waiting_on_barrier = 0;
-    chsend(63, &waiting_on_barrier, sizeof(int));
-
-
-    int waiting_data[n];
+    // Tablica zgłoszeń do deadlocków
+    int waiting_data[MAX_N];
     memset(waiting_data, -1, sizeof(int) * n);
-
     chsend(111, waiting_data, sizeof(int) * n); // C
     chsend(113, waiting_data, sizeof(int) * n); // A
     chsend(115, waiting_data, sizeof(int) * n); // source
     chsend(117, waiting_data, sizeof(int) * n); // count
     chsend(119, waiting_data, sizeof(int) * n); // tag
 
-
-
+    // Licznik wiadomości już odebranych, które będą usuwane z listy
     int no_of_messages_to_remove = 0;
     for (int i = 0; i < n; i++) {
         chsend(get_deadlock_counter_write_desc(i), &no_of_messages_to_remove, sizeof(int));
     }
 
 
-    pid_t pids[n]; // pid'y dzieci
+    pid_t pids[MAX_N]; // pid'y dzieci
     for (int i = 0; i < n; i++) {
 
         pids[i] = fork();
@@ -147,15 +138,6 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < n; i++) {
         waitpid(pids[i], NULL, 0);
     }
-
-
-
-//    for (int i = 0; i < n; i++) {
-//        for (int j = 0; j < n; j++) {
-//            printf("%d -> %d %d %d \n", i, j, desc[i][j][0], desc[i][j][1]);
-//        }
-//    }
-//    print_open_descriptors();
 
     return 0;
 }

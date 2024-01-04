@@ -68,33 +68,13 @@ int main(int argc, char **argv)
 
 
 
-// ./run_test 10s 6 examples_build/extended_pipe_closed
 
-// extended pipe closed
-
-
-// printf("ok\n");
-
-// ./mimpirun 2 valgrind --track-origins=yes --leak-check=full --max-stackframe=4000032 ./main
-
-// TODO czy MIMPI_ERROR_REMOTE_FINISHED trzeba sprawdzać tylko w MIMPI_BARRIER
-
-// TODO wiadomości mniejsze niz 512B
-// TODO zrobic zeby world rank i size czytalo z pipea tylko raz
 // TODO assert_sys_ok
-// TODO co jak na starcie będzie zajęty deskryptor 19
+// TODO wiadomości mniejsze niz 512B
 // TODO szukanie wiadomosci nie od poczatku
-// TODO chsend zwraca EPIPE jeśli koniec do odczytu łącza jest zamknięty więc możesz wiedzieć od razu że nie da się wysłać
-
-// TODO nie wiemy chyba czy do odczytu bedzie parzysty czy nieparzysty deskryptor wiec moze trzeba to uwzglednic (teraz do read jest parzysty)
-
-// TODO co miało być wysłane przed barierą będzie wysłane bo send musi się skończyć
-// TODO nie przeszkadza nam że nie wszystko będzie odebrane podczas beriery (gdzie indziej też nam nie przeszkadza)
-// TODO bo to co odebraliśmy/będziemy odbierali interesuje nas tylko jak robimy receive
-
-
 // TODO count moze byc duzy (MAX_INT) wiec zadbac o to zeby nie było overflowa
-// TODO cos zmienial w jakims tescie any size czy cos
+// TODO malloc
+
 
 // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory
 // https://pubs.opengroup.org/onlinepubs/009604599/functions/pipe.html
