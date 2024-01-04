@@ -6,7 +6,6 @@
 #include "mimpi_common.h"
 #include "moja.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -102,7 +101,7 @@ pthread_mutex_t mutex_pipes;
 pthread_mutex_t parent_sleeping;
 
 
-bool check_for_deadlock_in_receive(void* data, int count_arg, int source_arg, int tag_arg) {
+bool check_for_deadlock_in_receive(int count_arg, int source_arg, int tag_arg) {
 
     // dodajemy nasze zgłoszenie
     int c[world_size];
@@ -308,7 +307,7 @@ int MIMPI_get_write_desc(int src, int dest) {
 // Przekazany bufor ma mieć rozmiar 496B // TODO zmienic na pusty bufor
 void read_message_from_pom_pipe(int descriptor, void** result_buffer, int* count, int* tag) {
 
-    int result_buffer_size = 496;
+    long long int result_buffer_size = 496;
     free(*result_buffer); // TODO dodalem
     *result_buffer = malloc(result_buffer_size); // TODO dodalem
 
@@ -327,7 +326,9 @@ void read_message_from_pom_pipe(int descriptor, void** result_buffer, int* count
         memcpy(&fragment_tag, buffer + sizeof(int) * 2, sizeof(int));
         memcpy(&current_message_size, buffer + sizeof(int) * 3, sizeof(int));
 
+
         // Zapisywanie danych z fragmentu do głównego bufora danych
+
         memcpy(*result_buffer + received, buffer + sizeof(int) * META_INFO_SIZE, current_message_size);
         received += current_message_size;
 
@@ -336,6 +337,7 @@ void read_message_from_pom_pipe(int descriptor, void** result_buffer, int* count
             *result_buffer = realloc(*result_buffer, result_buffer_size);
         }
     }
+
     *count = received;
     *tag = fragment_tag;
 
@@ -359,6 +361,8 @@ void *read_messages_from_source(void *src) {
         int fragment_tag = 0;
         int count = 0;
         read_message_from_pom_pipe(MIMPI_get_read_desc(source, MIMPI_World_rank()), &read_message, &count, &fragment_tag);
+
+
 
         // W tym miejscu mamy już całą jedną wiadomość
 
@@ -434,8 +438,6 @@ void *czytaj_odczytane_wiadomosci_deadlock() {
         }
         chsend(get_deadlock_counter_write_desc(world_rank), &no_of_messages_to_remove, sizeof(int));
     }
-
-    return NULL;
 }
 
 
@@ -476,7 +478,8 @@ void MIMPI_Init(bool enable_deadlock_detection) {
 int send_message_to_pipe(int descriptor, void const *data, int count, int tag, bool check_if_dest_active, int destination) {
     // Dzielimy wiadomość na części rozmiaru ile + z_ilu + tag + current_message_size + wiadomość = 512B
     int max_message_size = 512 - sizeof(int) * META_INFO_SIZE;
-    int liczba_czesci = (count + (max_message_size - 1)) / max_message_size; // ceil(A/B) use (A + (B-1)) / B
+    int liczba_czesci = (int)(((long long int)count + ((long long int)max_message_size - 1)) / (long long int)max_message_size); // ceil(A/B) use (A + (B-1)) / B
+
     int nr_czesci = 1;
 
     // tworzenie wiadomosci
@@ -698,7 +701,7 @@ MIMPI_Retcode MIMPI_Recv(
     pthread_mutex_unlock(&mutex_pipes);
 
     if (deadlock_detection && tag >= 0 && finished_deadlock[source] == false) {
-        if (check_for_deadlock_in_receive(data, count, source, tag)) {
+        if (check_for_deadlock_in_receive(count, source, tag)) {
             return MIMPI_ERROR_DEADLOCK_DETECTED;
         }
     }
@@ -1022,7 +1025,7 @@ MIMPI_Retcode MIMPI_Reduce(
 
             // Odczytana część może być od dowolnego z dzieci
             int max_message_size = 512 - sizeof(int) * META_INFO_SIZE;
-            int liczba_czesci = (count + (max_message_size - 1)) / max_message_size; // ceil(A/B) use (A + (B-1)) / B
+            int liczba_czesci = (int)(((long long int)count + ((long long int)max_message_size - 1)) / (long long int)max_message_size); // ceil(A/B) use (A + (B-1)) / B
             void* buffer = malloc(512);  // Bufor do przechowywania fragmentów i metadanych
             int ile = 0, z_ilu = 1, ranga_nadawcy, current_message_size;
             int received_1 = 0;

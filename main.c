@@ -9,31 +9,79 @@
 #include "examples/test.h"
 #include "examples/mimpi_err.h"
 
-// TODO czy duzo wiadomosci zakleszcza sprawdzanie zakleszczen
-// lista odebranych wiadomosci jest za duza
 
-int main() {
-    MIMPI_Init(0);
+#define NS_PER_1_MS 1 ## 000 ## 000
 
-    if (MIMPI_World_rank() != 0) {
-        int a[10];
-        for (int i = 0; i < 1000000; i++) {
-            MIMPI_Send(a, 10 * sizeof(int), 0, MIMPI_ANY_TAG);
-        }
+// based on: https://stackoverflow.com/questions/1157209/is-there-an-alternative-sleep-function-in-c-to-milliseconds
+/* msleep(): Sleep for the requested number of milliseconds. */
+static int msleep(long msec)
+{
+    struct timespec ts;
+    int res;
+
+    if (msec < 0)
+    {
+        errno = EINVAL;
+        return -1;
     }
 
-    MIMPI_Barrier();
-    printf("Done!\n");
-    MIMPI_Finalize();
+    ts.tv_sec = msec / 1000;
+    ts.tv_nsec = (msec % 1000) * 1000000;
 
+    do
+    {
+        res = nanosleep(&ts, &ts);
+    } while (res && errno == EINTR);
+
+    return res;
+}
+
+
+
+int main(int argc, char **argv)
+{
+    MIMPI_Init(true);
+
+    int const world_rank = MIMPI_World_rank();
+
+    int const tag = 17;
+
+    char number = 42;
+    if (world_rank == 0) {
+        msleep(500);
+    } else if (world_rank == 1) {
+        assert(MIMPI_Recv(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
+        assert(MIMPI_Send(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
+        assert(MIMPI_Recv(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
+        assert(number == 42);
+    }else if(world_rank == 2){
+        msleep(1000);
+        assert(MIMPI_Recv(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
+        assert(number == 42);
+        assert(MIMPI_Recv(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
+        assert(number == 42);
+    }else if(world_rank == 3){
+        // heurystyczne założenie że wszytko zdąży się wykonać w odpowiednim czasie żeby ten proces już wiedział że odbiorca jest zamknięty
+        msleep(1000);
+        assert(MIMPI_Send(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
+    }else if(world_rank == 4){
+        // heurystyczne założenie że chwrite zakończy się z błędem "Zamknięty odpbiorca".
+        setenv("CHANNELS_WRITE_DELAY", "1000", true);
+        assert(MIMPI_Send(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
+        setenv("CHANNELS_WRITE_DELAY", "1", true);
+    }
+
+    MIMPI_Finalize();
+    printf("Done\n");
     return test_success();
 }
 
+
+
 // ./run_test 10s 6 examples_build/extended_pipe_closed
-// ./run_test 30s 3 ./examples_build/send_any_size 2147483647 0 1
 
 // extended pipe closed
-// send any size
+
 
 // printf("ok\n");
 
@@ -55,6 +103,7 @@ int main() {
 // TODO bo to co odebraliśmy/będziemy odbierali interesuje nas tylko jak robimy receive
 
 
+// TODO count moze byc duzy (MAX_INT) wiec zadbac o to zeby nie było overflowa
 // TODO cos zmienial w jakims tescie any size czy cos
 
 // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory
@@ -81,6 +130,54 @@ for i in {1..100}
 do
    echo $i
    ./mimpirun 2 ./main
+done
+
+
+
+  set -e
+for i in {1..100000}; do
+    echo "test $i"
+    if ! ./run_test 1000s 2 examples_build/deadlock3; then
+        echo "Test deadlock3 failed"
+        break
+    fi
+done
+
+ set -e
+for i in {1..100000}; do
+    echo "test $i"
+    if ! ./run_test 1s 2 examples_build/deadlock1; then
+        echo "Test deadlock1 failed"
+        break
+    elif ! ./run_test 1s 2 examples_build/deadlock2; then
+        echo "Test deadlock2 failed"
+        break
+    elif ! ./run_test 1s 2 examples_build/deadlock3; then
+        echo "Test deadlock3 failed"
+        break
+    elif ! ./run_test 1s 3 examples_build/deadlock4; then
+        echo "Test deadlock4 failed"
+        break
+    elif ! ./run_test 1s 2 examples_build/deadlock5; then
+        echo "Test deadlock5 failed"
+        break
+    elif ! ./run_test 1s 2 examples_build/deadlock6; then
+        echo "Test deadlock6 failed"
+        break
+    fi
+done
+
+
+
+
+
+  set -e
+for i in {1..100000}; do
+    echo "test $i"
+    if ! ./run_test 1s 2 examples_build/deadlock3; then
+        echo "Test deadlock3 failed"
+        break
+    fi
 done
 
  */
