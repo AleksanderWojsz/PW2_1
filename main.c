@@ -5,77 +5,64 @@
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
+#include <string.h>
+#include <stdint-gcc.h>
 #include "mimpi.h"
 #include "examples/test.h"
 #include "examples/mimpi_err.h"
 
-
-#define NS_PER_1_MS 1 ## 000 ## 000
-
-// based on: https://stackoverflow.com/questions/1157209/is-there-an-alternative-sleep-function-in-c-to-milliseconds
-/* msleep(): Sleep for the requested number of milliseconds. */
-static int msleep(long msec)
-{
-    struct timespec ts;
-    int res;
-
-    if (msec < 0)
-    {
-        errno = EINVAL;
-        return -1;
-    }
-
-    ts.tv_sec = msec / 1000;
-    ts.tv_nsec = (msec % 1000) * 1000000;
-
-    do
-    {
-        res = nanosleep(&ts, &ts);
-    } while (res && errno == EINTR);
-
-    return res;
-}
-
-
+#define WRITE_VAR "CHANNELS_WRITE_DELAY"
 
 int main(int argc, char **argv)
 {
-    MIMPI_Init(true);
+    size_t data_size = 65000;
 
+    MIMPI_Init(false);
     int const world_rank = MIMPI_World_rank();
+    const char *delay = getenv("DELAY");
+    if (delay)
+    {
+        int res = setenv(WRITE_VAR, delay, true);
+        assert(res == 0);
+    }
+    uint8_t *data = malloc(data_size);
+    assert(data);
+    memset(data, 1, data_size);
 
-    int const tag = 17;
 
-    char number = 42;
-    if (world_rank == 0) {
-        msleep(500);
-    } else if (world_rank == 1) {
-        assert(MIMPI_Recv(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
-        assert(MIMPI_Send(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
-        assert(MIMPI_Recv(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
-        assert(number == 42);
-    }else if(world_rank == 2){
-        msleep(1000);
-        assert(MIMPI_Recv(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
-        assert(number == 42);
-        assert(MIMPI_Recv(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
-        assert(number == 42);
-    }else if(world_rank == 3){
-        // heurystyczne założenie że wszytko zdąży się wykonać w odpowiednim czasie żeby ten proces już wiedział że odbiorca jest zamknięty
-        msleep(1000);
-        assert(MIMPI_Send(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
-    }else if(world_rank == 4){
-        // heurystyczne założenie że chwrite zakończy się z błędem "Zamknięty odpbiorca".
-        setenv("CHANNELS_WRITE_DELAY", "1000", true);
-        assert(MIMPI_Send(&number, 1, 0, tag) == MIMPI_ERROR_REMOTE_FINISHED);
-        setenv("CHANNELS_WRITE_DELAY", "1", true);
+    if (world_rank == 0)
+    {
+        uint8_t *recv_data = malloc(data_size);
+        assert(recv_data);
+
+
+        assert(MIMPI_Reduce(data, recv_data, data_size, MIMPI_SUM, 0) == MIMPI_ERROR_REMOTE_FINISHED);
+
+
+        for (int i = 1; i < data_size; ++i)
+            test_assert(recv_data[i] == recv_data[0]);
+        printf("Number: %d\n", recv_data[0]);
+        fflush(stdout);
+        free(recv_data);
+    }
+    else
+    {
+        if (world_rank != 1)
+        {
+            assert(MIMPI_Reduce(data, NULL, data_size, MIMPI_SUM, 0) == MIMPI_ERROR_REMOTE_FINISHED);
+        }
     }
 
+
+    test_assert(data[0] == 1);
+    for (int i = 1; i < data_size; ++i)
+        test_assert(data[i] == data[0]);
+    free(data);
+    int res = unsetenv(WRITE_VAR);
+    assert(res == 0);
     MIMPI_Finalize();
-    printf("Done\n");
     return test_success();
 }
-
 
 
 // ./run_test 10s 6 examples_build/extended_pipe_closed
@@ -168,16 +155,5 @@ for i in {1..100000}; do
 done
 
 
-
-
-
-  set -e
-for i in {1..100000}; do
-    echo "test $i"
-    if ! ./run_test 1s 2 examples_build/deadlock3; then
-        echo "Test deadlock3 failed"
-        break
-    fi
-done
 
  */

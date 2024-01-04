@@ -641,7 +641,9 @@ MIMPI_Retcode MIMPI_Send(
         list_add(&sent_messages, data, count, destination, tag);
     }
 
-    return send_message_to_pipe(MIMPI_get_write_desc(MIMPI_World_rank(), destination), data, count, tag, true, destination);
+    int result = send_message_to_pipe(MIMPI_get_write_desc(MIMPI_World_rank(), destination), data, count, tag, true, destination);
+
+    return result;
 }
 
 
@@ -978,6 +980,13 @@ MIMPI_Retcode MIMPI_Reduce(
         MIMPI_Op op,
         int root
 ) {
+
+    // Wywołujemy barierę, żeby sprawdzić czy wszyscy przyjdą, i nie zakleszczymy się na wysyłaniu dużej tablicy
+    // Moja złożoność dla count = 40 000 zaoszczędza 76 czasów działania zwykłej bariery, więc możemy sobie pozwolić na dołożenie jednej
+    if (count > 40000) {
+        MIMPI_Barrier();
+    }
+
     if (someone_already_finished == true) {
         return MIMPI_ERROR_REMOTE_FINISHED;
     }

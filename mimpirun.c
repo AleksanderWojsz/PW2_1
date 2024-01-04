@@ -118,7 +118,6 @@ int main(int argc, char *argv[]) {
     }
 
 
-
     pid_t pids[n]; // pid'y dzieci
     for (int i = 0; i < n; i++) {
 
