@@ -59,11 +59,6 @@ int get_deadlock_write_desc(int rank) {
     return get_deadlock_read_desc(rank) + 1;
 }
 
-// TODO dodac obsluge do reduce
-// TODO czyscic oczekujace
-// TODO mutex ma obejmowac caly receive?
-// TODO duzo wiadomosci zakleszczenia
-
 // od 120 do 159 na odebrane wiadomości + od 160 do 199 na liczniki(mutexy)
 int get_deadlock_received_read_desc(int rank) {
     return 120 + rank * 2;
@@ -164,7 +159,8 @@ bool check_for_deadlock_in_receive(int count_arg, int source_arg, int tag_arg) {
             }
         }
 
-        if (a[world_rank] == 1 && c[world_rank] != 1 && source[source_arg] == world_rank && a[source_arg] == 1 && c[source_arg] != 1) { // jak my na pewno czekamy, nie byliśmy już wcześniej w cyklu, i ktos jest z nami w cyklu // TODO tutaj też drugi proces musi miec A i nie C?
+        // jak my na pewno czekamy, nie byliśmy już wcześniej w cyklu, i ktos jest z nami w cyklu
+        if (a[world_rank] == 1 && c[world_rank] != 1 && source[source_arg] == world_rank && a[source_arg] == 1 && c[source_arg] != 1) {
             c[world_rank] = 1; // jestesmy w cyklu
             c[source_arg] = 1; // oznaczamy, że ktoś jest z nami w cyklu
         }
@@ -273,7 +269,7 @@ int check_arguments_correctness(int other_process_rank) {
         return MIMPI_ERROR_NO_SUCH_RANK;
     }
     else {
-        return 0;
+        return MIMPI_SUCCESS;
     }
 }
 
@@ -634,7 +630,7 @@ MIMPI_Retcode MIMPI_Send(
         int tag
 ) {
 
-    if (check_arguments_correctness(destination) != 0) {
+    if (check_arguments_correctness(destination) != MIMPI_SUCCESS) {
         return check_arguments_correctness(destination);
     }
     else if (is_in_MPI_block(destination) == false) {
@@ -661,7 +657,7 @@ MIMPI_Retcode MIMPI_Recv(
 
 //    printf("Jestem %d, robie receive %d %d %d\n", world_rank, count, source, tag);
 
-    if (check_arguments_correctness(source) != 0) {
+    if (check_arguments_correctness(source) != MIMPI_SUCCESS) {
         return check_arguments_correctness(source);
     }
 
@@ -793,6 +789,12 @@ MIMPI_Retcode MIMPI_Bcast(
         int root
 ) {
 
+    if (root >= world_size || root < 0) {
+        return MIMPI_ERROR_NO_SUCH_RANK;
+    }
+    if (world_size == 1) {
+        return MIMPI_SUCCESS;
+    }
     if (someone_already_finished == true) {
         return MIMPI_ERROR_REMOTE_FINISHED;
     }
@@ -894,10 +896,6 @@ MIMPI_Retcode MIMPI_Barrier() {
     void* foo_data = malloc(512);
     memset(foo_data, 0, 512);
 
-    if (world_size == 1) {
-        free(foo_data);
-        return MIMPI_SUCCESS;
-    }
     MIMPI_Retcode ret = MIMPI_Bcast(foo_data, 1, 0);
     free(foo_data);
     return ret;
@@ -984,6 +982,15 @@ MIMPI_Retcode MIMPI_Reduce(
         int root
 ) {
 
+    if (root >= world_size || root < 0) {
+        return MIMPI_ERROR_NO_SUCH_RANK;
+    }
+
+    if (world_size == 1) {
+        memcpy(recv_data, send_data, count);
+        return MIMPI_SUCCESS;
+    }
+
     // Wywołujemy barierę, żeby sprawdzić czy wszyscy przyjdą, i nie zakleszczymy się na wysyłaniu dużej tablicy
     // Moja złożoność dla count = 40 000 zaoszczędza 76 czasów działania zwykłej bariery, więc możemy sobie pozwolić na dołożenie jednej
     if (count > 40000) {
@@ -1001,6 +1008,8 @@ MIMPI_Retcode MIMPI_Reduce(
     void* array_1 = malloc(count);
     void* array_2 = malloc(count);
     void* reduced_array = malloc(count);
+
+    memcpy(reduced_array, send_data, count);
 
     int i = world_size - root;
     int n = world_size;
