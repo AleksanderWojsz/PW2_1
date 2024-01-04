@@ -99,6 +99,7 @@ bool finished_deadlock[16] = {false};
 bool rodzic_czeka_na_odczytanie_wszystkich = false;
 pthread_mutex_t mutex_pipes;
 pthread_mutex_t parent_sleeping;
+pthread_mutex_t unread_messages_sleeping;
 
 
 bool check_for_deadlock_in_receive(int count_arg, int source_arg, int tag_arg) {
@@ -130,7 +131,8 @@ bool check_for_deadlock_in_receive(int count_arg, int source_arg, int tag_arg) {
         chsend(get_deadlock_counter_write_desc(world_rank), &no_of_messages_to_remove, sizeof(int));
         if (no_of_messages_to_remove > 0) {
             rodzic_czeka_na_odczytanie_wszystkich = true;
-            pthread_mutex_lock(&parent_sleeping); // jak są jeszcze jakies nieodbrane wiadomości to czekamy
+
+            pthread_mutex_lock(&unread_messages_sleeping); // jak są jeszcze jakies nieodbrane wiadomości to czekamy
         }
 
         chrecv(get_deadlock_counter_read_desc(world_rank), &no_of_messages_to_remove, sizeof(int)); // Jako mutex
@@ -434,7 +436,7 @@ void *czytaj_odczytane_wiadomosci_deadlock() {
 
         if (rodzic_czeka_na_odczytanie_wszystkich == true) {
             rodzic_czeka_na_odczytanie_wszystkich = false;
-            pthread_mutex_unlock(&parent_sleeping);
+            pthread_mutex_unlock(&unread_messages_sleeping);
         }
         chsend(get_deadlock_counter_write_desc(world_rank), &no_of_messages_to_remove, sizeof(int));
     }
@@ -458,6 +460,8 @@ void MIMPI_Init(bool enable_deadlock_detection) {
     pthread_mutex_init(&mutex_pipes, NULL);
     pthread_mutex_init(&parent_sleeping, NULL);
     pthread_mutex_lock(&parent_sleeping); // zmniejszanie licznika do 0
+    pthread_mutex_init(&unread_messages_sleeping, NULL);
+    pthread_mutex_lock(&unread_messages_sleeping); // zmniejszanie licznika do 0
 
     // Tworzenie po jednym wątku na każdy pipe
     for (int i = 0; i < MIMPI_World_size(); i++) {
@@ -603,6 +607,7 @@ void MIMPI_Finalize() {
 
     pthread_mutex_destroy(&mutex_pipes);
     pthread_mutex_destroy(&parent_sleeping);
+    pthread_mutex_destroy(&unread_messages_sleeping);
 
     // zamykanie wszystkich deskryptorów
     for (int i = 20; i < 20 + 2 * POM_PIPES; i++) {
@@ -708,9 +713,7 @@ MIMPI_Retcode MIMPI_Recv(
         }
     }
 
-
     pthread_mutex_lock(&parent_sleeping); // idziemy spać
-
 
     // W tym miejscu na liście jest już nasza wiadomość, tylko musimy ją znaleźć
     pthread_mutex_lock(&mutex_pipes);
