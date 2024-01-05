@@ -22,26 +22,33 @@ int main(int argc, char **argv)
     int rank = MIMPI_World_rank();
     char buf = '1';
     if (rank == 0) {
-        assert(MIMPI_Recv(&buf, sizeof(buf), 1, 2137) == MIMPI_ERROR_DEADLOCK_DETECTED); // zakleszczenie
-        assert(MIMPI_Send(&buf, sizeof(buf), 1, 2137) == MIMPI_SUCCESS); // sukces czy zakleszczenie?
+        MIMPI_Retcode status = MIMPI_Recv(&buf, sizeof(buf), 1, 2137); // zakleszczenie
+        if (status == MIMPI_ERROR_DEADLOCK_DETECTED) {
+            MIMPI_Finalize(); // wychodzimy z bloku MPI bezpośrednio po zakleszczeniu
+        }
+        else {
+            assert(false);
+        }
     }
     if (rank == 1) {
         assert(MIMPI_Recv(&buf, sizeof(buf), 0, 2137) == MIMPI_ERROR_DEADLOCK_DETECTED); // zakleszczenie
-        assert(MIMPI_Recv(&buf, sizeof(buf), 0, 2137) == MIMPI_SUCCESS); // sukces czy zakleszczenie?
+        MIMPI_Finalize();
     }
-    MIMPI_Finalize();
+    if (rank == 2) {
+        assert(MIMPI_Recv(&buf, sizeof(buf), 0, 2137) == MIMPI_ERROR_REMOTE_FINISHED); // nadawca zakończył działanie czy zakleszczenie?
+        MIMPI_Finalize();
+    }
 
+    return test_success();
 }
 
 
 
 
 // Wszystkie wiadomości mają rozmiar 512B, jak wiadomość jest za mała, to jest dopełniana zerami
-// TODO assert_sys_ok
 // TODO wiadomości mniejsze niz 512B
-// TODO szukanie wiadomosci nie od poczatku
 // TODO count moze byc duzy (MAX_INT) wiec zadbac o to zeby nie było overflowa
-// TODO malloc
+// TODO szukanie wiadomosci nie od poczatku
 
 
 // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory

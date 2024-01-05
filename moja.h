@@ -22,30 +22,14 @@ typedef struct Message {
     struct Message *next;
 } Message;
 
-void list_print(Message *head) {
-    Message *current = head;
-    int i = 0; // Licznik do numerowania wiadomości
-
-    while (current != NULL) {
-        printf("Wiadomosc %d:\n", ++i);
-        if (current->data != NULL) {
-            printf("  data %d\n", *(const int *) current->data);
-        } else {
-            printf("  data NULL\n");
-        }
-        printf("  Ilosc: %d\n", current->count);
-        printf("  Zrodlo: %d\n", current->source);
-        printf("  Tag: %d\n\n", current->tag);
-        current = current->next;
-    }
-}
-
 // Dodawanie nowego elementu na koniec listy
 void list_add(Message **head, void const *data, int count, int source, int tag) {
     Message *new_message = malloc(sizeof(Message));
+    assert(new_message);
 
     if (data != NULL) {
         new_message->data = malloc(count);
+        assert(new_message->data);
         memcpy(new_message->data, data, count);
     } else {
         new_message->data = NULL;
@@ -175,7 +159,23 @@ void print_open_descriptors(void)
 }
 
 
+void list_print(Message *head) {
+    Message *current = head;
+    int i = 0; // Licznik do numerowania wiadomości
 
+    while (current != NULL) {
+        printf("Wiadomosc %d:\n", ++i);
+        if (current->data != NULL) {
+            printf("  data %d\n", *(const int *) current->data);
+        } else {
+            printf("  data NULL\n");
+        }
+        printf("  Ilosc: %d\n", current->count);
+        printf("  Zrodlo: %d\n", current->source);
+        printf("  Tag: %d\n\n", current->tag);
+        current = current->next;
+    }
+}
 
 
 #endif //PW2_MOJA_H
