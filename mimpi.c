@@ -4,16 +4,100 @@
 #include "channel.h"
 #include "mimpi.h"
 #include "mimpi_common.h"
-#include "moja.h"
-
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <string.h>
+#include <unistd.h>
 
 #define POM_PIPES 90
 #define OUT_OF_MPI_BLOCK (-1)
 #define META_INFO_SIZE 4
 #define MAX_N 16
+
+typedef struct Message {
+    void *data;
+    int count;
+    int source;
+    int tag;
+    struct Message *next;
+} Message;
+
+// Dodawanie nowego elementu na koniec listy
+void list_add(Message **head, void const *data, int count, int source, int tag) {
+    Message *new_message = malloc(sizeof(Message));
+    assert(new_message);
+
+    if (data != NULL) {
+        new_message->data = malloc(count);
+        assert(new_message->data);
+        memcpy(new_message->data, data, count);
+    } else {
+        new_message->data = NULL;
+    }
+
+    new_message->count = count;
+    new_message->source = source;
+    new_message->tag = tag;
+    new_message->next = NULL;
+
+    if (*head == NULL) {
+        *head = new_message;
+    } else {
+        Message *current = *head;
+        while (current->next != NULL) {
+            current = current->next;
+        }
+        current->next = new_message;
+    }
+}
+
+// Znajdowanie pierwszego elementu o wskazanym count, source, tag (lub dowolny tak jak nasz tag == 0)
+Message *list_find(Message *head, int count, int source, int tag) {
+    Message *current = head;
+    while (current != NULL) {
+        if ((current->count == count && current->source == source && (current->tag == tag || tag == 0)) ||
+            (current->source == source && current->tag < 0)) { // Wiadomość specjalna od konkretnego nadawcy
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL; // Nie znaleziono elementu
+}
+
+// Usuwanie pierwszego elementu o wskazanym count, source, tag
+void list_remove(Message **head, int count, int source, int tag) {
+    Message *current = *head;
+    Message *previous = NULL;
+    while (current != NULL) {
+        if (current->count == count && current->source == source && current->tag == tag) {
+            if (previous == NULL) {
+                // Usuwamy pierwszy element
+                *head = current->next;
+            } else {
+                // Usuwamy element w środku lub na końcu
+                previous->next = current->next;
+            }
+            free(current->data);
+            free(current);
+            return;
+        }
+        previous = current;
+        current = current->next;
+    }
+}
+
+void list_clear(Message **head) {
+    Message *current = *head;
+    Message *next;
+    while (current != NULL) {
+        next = current->next;
+        free(current->data);
+        free(current);
+        current = next;
+    }
+    *head = NULL;
+}
 
 Message* received_list = NULL;
 bool finished[16] = {false};
@@ -586,7 +670,6 @@ void MIMPI_Finalize() {
         }
     }
 
-    // TODO assert
     pthread_mutex_destroy(&mutex_pipes);
     pthread_mutex_destroy(&parent_sleeping);
     pthread_mutex_destroy(&unread_messages_sleeping);
@@ -661,8 +744,6 @@ MIMPI_Retcode MIMPI_Recv(
                 ASSERT_ZERO(pthread_mutex_unlock(&mutex_pipes));
                 someone_already_finished = true;
                 return MIMPI_ERROR_REMOTE_FINISHED;
-            } else {
-                assert(0 == 1); // Nieobsłużona wiadomość specjalna
             }
         }
 
@@ -702,8 +783,6 @@ MIMPI_Retcode MIMPI_Recv(
             ASSERT_ZERO(pthread_mutex_unlock(&mutex_pipes));
             someone_already_finished = true;
             return MIMPI_ERROR_REMOTE_FINISHED;
-        } else {
-            assert(0 == 1); // Nieobsłużona wiadomość specjalna
         }
     }
     memcpy(data, message->data, message->count); // Przepisanie danych do bufora użytkownika
@@ -749,9 +828,7 @@ bool handle_fragment_tags(int* fragment_tag, void** buffer, int* foo_count, int 
             no_of_barrier--;
             return true;
         }
-        else {
-            assert(0 == 1); // Nieobsłużona wiadomość specjalna
-        }
+
         read_message_from_pom_pipe(read_descriptor, buffer, foo_count, fragment_tag); // Czekamy na dowolną wiadomość
     }
     return false;
@@ -975,9 +1052,6 @@ MIMPI_Retcode MIMPI_Reduce(
                     no_of_barrier--;
                     return MIMPI_ERROR_REMOTE_FINISHED;
                 }
-                else {
-                    assert(0 == 1); // Nieobsłużona wiadomość specjalna
-                }
                 read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &array_1, &foo_count, &fragment_tag); // czekamy na pierwszą tablicę
             }
 
@@ -1018,9 +1092,6 @@ MIMPI_Retcode MIMPI_Reduce(
                         someone_already_finished = true;
                         no_of_barrier--;
                         return MIMPI_ERROR_REMOTE_FINISHED;
-                    }
-                    else {
-                        assert(0 == 1); // Nieobsłużona wiadomość specjalna
                     }
 
                     // Rozpakowywanie metadanych z bufora
@@ -1095,9 +1166,7 @@ MIMPI_Retcode MIMPI_Reduce(
                 no_of_barrier--;
                 return MIMPI_ERROR_REMOTE_FINISHED;
             }
-            else {
-                assert(0 == 1); // Nieobsłużona wiadomość specjalna
-            }
+
             read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &foo_buffer, &foo_count, &fragment_tag); // czekamy na pierwszą tablicę
         }
 
@@ -1119,9 +1188,7 @@ MIMPI_Retcode MIMPI_Reduce(
                 no_of_barrier--;
                 return MIMPI_ERROR_REMOTE_FINISHED;
             }
-            else {
-                assert(0 == 1); // Nieobsłużona wiadomość specjalna
-            }
+
             read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &foo_buffer, &foo_count, &fragment_tag); // czekamy na pierwszą tablicę
         }
     }

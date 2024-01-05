@@ -1,12 +1,10 @@
 #include "mimpi_common.h"
-#include "mimpi.h"
 #include "channel.h"
-#include "moja.h"
-
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <string.h>
 
 #define OVERWRITE 1
 #define POM_PIPES 90

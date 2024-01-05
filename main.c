@@ -18,57 +18,37 @@
 
 int main(int argc, char **argv)
 {
-    MIMPI_Init(true);
-    int rank = MIMPI_World_rank();
-    char buf = '1';
-    if (rank == 0) {
-        MIMPI_Retcode status = MIMPI_Recv(&buf, sizeof(buf), 1, 2137); // zakleszczenie
-        if (status == MIMPI_ERROR_DEADLOCK_DETECTED) {
-            MIMPI_Finalize(); // wychodzimy z bloku MPI bezpośrednio po zakleszczeniu
-        }
-        else {
-            assert(false);
-        }
-    }
-    if (rank == 1) {
-        assert(MIMPI_Recv(&buf, sizeof(buf), 0, 2137) == MIMPI_ERROR_DEADLOCK_DETECTED); // zakleszczenie
-        MIMPI_Finalize();
-    }
-    if (rank == 2) {
-        assert(MIMPI_Recv(&buf, sizeof(buf), 0, 2137) == MIMPI_ERROR_REMOTE_FINISHED); // nadawca zakończył działanie czy zakleszczenie?
-        MIMPI_Finalize();
-    }
+    MIMPI_Init(false);
 
+    int const process_rank = MIMPI_World_rank();
+    int const size_of_cluster = MIMPI_World_size();
+
+    printf("Hello World from process %d of %d\n", process_rank, size_of_cluster);
+
+    MIMPI_Finalize();
     return test_success();
 }
 
 
 
 
-// Wszystkie wiadomości mają rozmiar 512B, jak wiadomość jest za mała, to jest dopełniana zerami
-// TODO wiadomości mniejsze niz 512B
 // TODO count moze byc duzy (MAX_INT) wiec zadbac o to zeby nie było overflowa
+// TODO wiadomości mniejsze niz 512B
 // TODO szukanie wiadomosci nie od poczatku
 
+// Wszystkie wiadomości mają rozmiar 512B, jak wiadomość jest za mała, to jest dopełniana zerami
 
 // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pipe.html     - pipe zwraca zawsze dwa najmniejsze wolne deskryptory
 // https://pubs.opengroup.org/onlinepubs/009604599/functions/pipe.html
 // https://stackoverflow.com/questions/29852077/will-a-process-writing-to-a-pipe-block-if-the-pipe-is-full#comment47830197_29852077 - write do pełnego pipe'a jest blokujący, read z pustego też
 
 /*
- make
- ./mimirun
 
- cd examples_build
- ./send_recv
-
- bash ./test
+./update_public_repo
+./test_on_public_repo
 
  ./mimpirun 2 valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./main
 
- chmod +x test
-
- chmod -R 777 ścieżka/do/folderu
  chmod -R 777 *
 
 for i in {1..100}
