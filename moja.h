@@ -28,7 +28,11 @@ void list_print(Message *head) {
 
     while (current != NULL) {
         printf("Wiadomosc %d:\n", ++i);
-        printf("  data %d\n", *(const int *) current->data);
+        if (current->data != NULL) {
+            printf("  data %d\n", *(const int *) current->data);
+        } else {
+            printf("  data NULL\n");
+        }
         printf("  Ilosc: %d\n", current->count);
         printf("  Zrodlo: %d\n", current->source);
         printf("  Tag: %d\n\n", current->tag);

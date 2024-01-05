@@ -173,9 +173,10 @@ bool check_for_deadlock_in_receive(int count_arg, int source_arg, int tag_arg) {
 
         chrecv(get_deadlock_counter_read_desc(world_rank), &no_of_messages_to_remove, sizeof(int)); // Jako mutex
         // Usuwamy odczytane wiadomości z listy wysłanych
-        while (odczytane_wiadomosci_deadlock != NULL) {
-            list_remove(&sent_messages, odczytane_wiadomosci_deadlock->count, odczytane_wiadomosci_deadlock->source, odczytane_wiadomosci_deadlock->tag);
-            odczytane_wiadomosci_deadlock = odczytane_wiadomosci_deadlock->next;
+        Message* to_delete = odczytane_wiadomosci_deadlock;
+        while (to_delete != NULL) {
+            list_remove(&sent_messages, to_delete->count, to_delete->source, to_delete->tag);
+            to_delete = to_delete->next;
         }
         list_clear(&odczytane_wiadomosci_deadlock);
         chsend(get_deadlock_counter_write_desc(world_rank), &no_of_messages_to_remove, sizeof(int));
@@ -276,6 +277,7 @@ bool check_for_deadlock_in_receive(int count_arg, int source_arg, int tag_arg) {
                 }
             }
             else{ // (fragment_tag >= 0) Ktos nas obudził, bo przetworzył naszą wiadomość
+                free(foo_message);
                 break;
             }
 
