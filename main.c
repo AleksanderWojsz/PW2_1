@@ -14,20 +14,90 @@
 #define WRITE_VAR "CHANNELS_WRITE_DELAY"
 #define NS_PER_1_MS 1 ## 000 ## 000
 
-#define WRITE_VAR "CHANNELS_WRITE_DELAY"
-
+ // TODO sprawdzic liczbe czesci dla 497
+ #define SIZE 1000
 int main(int argc, char **argv)
 {
     MIMPI_Init(false);
+    int const world_rank = MIMPI_World_rank();
+    const char *delay = getenv("DELAY");
+    if (delay)
+    {
+        int res = setenv(WRITE_VAR, delay, true);
+        assert(res == 0);
+    }
 
-    int const process_rank = MIMPI_World_rank();
-    int const size_of_cluster = MIMPI_World_size();
+    uint8_t* tab = malloc(SIZE);
+    if (world_rank == 0) {
+        memset(tab, 42, SIZE);
+    }
+    else {
+        memset(tab, 0, SIZE);
+    }
 
-    printf("Hello World from process %d of %d\n", process_rank, size_of_cluster);
+//    printf("przed bcastem\n");
+    ASSERT_MIMPI_OK(MIMPI_Bcast(tab, SIZE, 0));
 
+//    for (int i = 0; i < SIZE; i++) {
+//        if (tab[i] != 42) {
+//            printf("value: %d, index: %d, jestem %d\n", tab[i], i, world_rank);
+//        }
+//        assert(tab[i] == 42);
+//    }
+
+
+    fflush(stdout);
+    int res = unsetenv(WRITE_VAR);
+    assert(res == 0);
+
+
+    printf("Number: %d\n", tab[0]);
     MIMPI_Finalize();
+    free(tab);
     return test_success();
 }
+
+
+// #define SIZE 1000
+//int main(int argc, char **argv)
+//{
+//    MIMPI_Init(false);
+//    int const world_rank = MIMPI_World_rank();
+//    const char *delay = getenv("DELAY");
+//    if (delay)
+//    {
+//        int res = setenv(WRITE_VAR, delay, true);
+//        assert(res == 0);
+//    }
+//
+//    uint8_t tab[SIZE];
+//    if (world_rank == 0) {
+//        memset(tab, 42, SIZE);
+//    }
+//    else {
+//        memset(tab, 0, SIZE);
+//    }
+//
+//    ASSERT_MIMPI_OK(MIMPI_Bcast(tab, SIZE, 0));
+//
+//    printf("Number: %d\n", tab[0]);
+//    for (int i = 0; i < SIZE; i++) {
+//        if (tab[i] != 42) {
+//            printf("value: %d, index: %d, jestem %d\n", tab[i], i, world_rank);
+//        }
+//        assert(tab[i] == 42);
+//    }
+//
+//
+//    fflush(stdout);
+//    int res = unsetenv(WRITE_VAR);
+//    assert(res == 0);
+//
+//    MIMPI_Finalize();
+//    return test_success();
+//}
+//
+
 
 
 
@@ -49,7 +119,8 @@ int main(int argc, char **argv)
 
  ./mimpirun 2 valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./main
 
- chmod -R 777 *
+chmod -R 700 *
+
 
 for i in {1..100}
 do

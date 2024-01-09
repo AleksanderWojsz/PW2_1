@@ -9,6 +9,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <sys/ioctl.h>
 
 #define POM_PIPES 90
 #define OUT_OF_MPI_BLOCK (-1)
@@ -589,18 +591,34 @@ int send_message_to_pipe(int descriptor, void const *data, int count, int tag, b
     return MIMPI_SUCCESS;
 }
 
+void send_message_to_pipe_barrier(int descriptor, void* data, int count);
 void MIMPI_Finalize() {
 
-    notify_iam_out(); // Zabraniamy wysłać do nas wiadomości poprzez MIMPI_SEND
+//    notify_iam_out(); // Zabraniamy wysłać do nas wiadomości poprzez MIMPI_SEND
 
     for (int i = 0; i < MIMPI_World_size(); i++) { // Wysyłamy do pipe'ów od babiery, wiadomość z tagiem -1, że nas nie będzie
-        void *message = malloc(512);
-        assert(message);
-        memset(message, 99, 512);
         if (i != MIMPI_World_rank()) {
-            send_message_to_pipe(get_barrier_write_desc(i), message, 100, -no_of_barrier - 1, false, 13); // Tag oznacza liczbe barier przez które przeszliśmy na minusie - 1
+            if (is_in_MPI_block(i)) {
+                void *message = malloc(512);
+                assert(message);
+                memset(message, 0, 512);
+                int tag = -no_of_barrier - 1;
+                memcpy(message + sizeof(int) * 2, &tag, sizeof(int));
+
+
+//                int pipe_size = 0;
+//                if (ioctl(get_barrier_write_desc(i), FIONREAD, &pipe_size) >= 0) {
+//                    printf("check_1, process %d, there are %d bytes in the pipe, iteration %d\n", world_rank, pipe_size, i);
+//                }
+//                printf("Skonczylem %d\n", world_rank);
+                chsend(get_barrier_write_desc(i), message, 512); // Tag oznacza liczbe barier przez które przeszliśmy na minusie - 1
+//                printf("check_2, process %d\n", world_rank);
+//                fflush(stdout);
+
+                free(message);
+            }
+    //            send_message_to_pipe_barrier(get_barrier_write_desc(i), message, 100); // Tag oznacza liczbe barier przez które przeszliśmy na minusie - 1 // TODO to nie ustawi tagu
         }
-        free(message);
     }
 
     if (deadlock_detection) {
@@ -834,6 +852,100 @@ bool handle_fragment_tags(int* fragment_tag, void** buffer, int* foo_count, int 
     return false;
 }
 
+
+
+
+
+
+
+
+
+int read_message_barrier(int read_descriptor, void** result_buffer) {
+
+    free(*result_buffer);
+    long long int result_buffer_size = 496;
+    *result_buffer = malloc(result_buffer_size);
+    assert(result_buffer);
+
+    void* buffer = malloc(512);  // Bufor do przechowywania fragmentów i metadanych
+    assert(buffer);
+    int received = 0;  // Ile bajtów danych już otrzymaliśmy
+    int ile = 0, z_ilu = 1, fragment_tag, current_message_size;
+
+    while (ile < z_ilu) {
+
+        // Odbieranie fragmentu
+        ASSERT_SYS_OK(chrecv(read_descriptor, buffer, 512));
+        memcpy(&fragment_tag, buffer + sizeof(int) * 2, sizeof(int));
+//        printf("Jestem %d i odczytalem tag %d\n", world_rank, fragment_tag);
+        if (no_of_barrier == -fragment_tag - 1) {
+            someone_already_finished = true;
+            continue;
+        }
+        else if (no_of_barrier == -fragment_tag) {
+            free(buffer);
+            someone_already_finished = true;
+            no_of_barrier--;
+            return true;
+        }
+
+        // Rozpakowywanie metadanych z bufora
+        memcpy(&ile, buffer + sizeof(int) * 0, sizeof(int));
+        memcpy(&z_ilu, buffer + sizeof(int) * 1, sizeof(int));
+        memcpy(&current_message_size, buffer + sizeof(int) * 3, sizeof(int));
+
+
+        // Zapisywanie danych z fragmentu do głównego bufora danych
+
+        memcpy(*result_buffer + received, buffer + sizeof(int) * META_INFO_SIZE, current_message_size);
+        received += current_message_size;
+
+        if (ile < z_ilu) { // Jak to nie koniec czytania to powiększamy bufor
+            result_buffer_size += 496;
+            *result_buffer = realloc(*result_buffer, result_buffer_size);
+        }
+    }
+
+    // nie robimy free result_buffer to ten jest potrzeny poza funkcją
+    free(buffer);
+    return false;
+}
+
+void send_message_to_pipe_barrier(int descriptor, void* data, int count) {
+
+    // Dzielimy wiadomość na części rozmiaru ile + z_ilu + tag + current_message_size + wiadomość = 512B
+    int max_message_size = 512 - sizeof(int) * META_INFO_SIZE;
+    int liczba_czesci = (int)(((long long int)count + ((long long int)max_message_size - 1)) / (long long int)max_message_size); // ceil(A/B) use (A + (B-1)) / B
+
+    int tag = 0;
+    int nr_czesci = 1;
+
+    // tworzenie wiadomosci
+    for (int i = 0; i < liczba_czesci; i++) {
+
+        int current_message_size = max_message_size;
+        if (i == liczba_czesci - 1) { // ostatnia część wiadomości
+            current_message_size = count - (liczba_czesci - 1) * max_message_size;
+        }
+
+        void *message = malloc(512);
+        assert(message);
+        memset(message, 0, 512);
+
+        memcpy(message + sizeof(int) * 0, &nr_czesci, sizeof(int));
+        memcpy(message + sizeof(int) * 1, &liczba_czesci, sizeof(int));
+        memcpy(message + sizeof(int) * 2, &tag, sizeof(int));
+        memcpy(message + sizeof(int) * 3, &current_message_size, sizeof(int));
+        memcpy(message + sizeof(int) * 4, data + i * max_message_size, current_message_size);
+
+        // Wysyłanie wiadomości
+        ASSERT_SYS_OK(chsend(descriptor, message, 512));
+        nr_czesci++;
+        free(message);
+    }
+}
+
+
 MIMPI_Retcode MIMPI_Bcast(
         void *data,
         int count,
@@ -851,100 +963,110 @@ MIMPI_Retcode MIMPI_Bcast(
     }
     no_of_barrier++; // To musi być po, bo przecież nie weszliśmy
 
-    void* buffer = malloc(512);
-    assert(buffer);
-
-
-    int fragment_tag = 0;
-    int foo_count = 0;
-
     int i = world_size - root;
     int n = world_size;
     int w = world_rank;
+    int l = 2 * ((w +i) % n) + 1; // lewe dziecko jakby root = 0
+    int p = 2 * ((w +i) % n) + 2;
+    int l_send = (2 * w + i + 1) % n;
+    int p_send = (2 * w + i + 2) % n;
+    void* buffer = NULL;
 
-    // Czekanie aż wszyscy się zbiorą
-    if (world_rank == root) { // jesteśmy korzeniem
-        read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na wiadomość od rodzica
+    // Czekamy az wszyscy przyjdą
 
-        if (handle_fragment_tags(&fragment_tag, &buffer, &foo_count, get_barrier_read_desc(world_rank))) {
-            return MIMPI_ERROR_REMOTE_FINISHED;
-        }
+    if (world_rank == root || l < world_size) { // jesteśmy korzeniem lub mamy dziecko
 
-        if (2 * ((w +i) % n) + 2 < world_size) { // Jak mamy prawe dziecko to czekamy na drugą wiadomość
-            read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na wiadomość od rodzica
-            if (handle_fragment_tags(&fragment_tag, &buffer, &foo_count, get_barrier_read_desc(world_rank))) {
+//        printf("Ala1, %d\n", world_rank);
+        if (l < world_size) { // mamy lewe dziecko
+
+//            printf("Ala2, %d\n", world_rank);
+            if (read_message_barrier(get_barrier_read_desc(world_rank), &buffer)) {
+                free(buffer);
                 return MIMPI_ERROR_REMOTE_FINISHED;
             }
         }
-    }
-    else if (2 * ((w +i) % n) + 1 < world_size) { // jesteśmy rodzicem niekorzeniem
-        read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na wiadomość od rodzica
-        if (handle_fragment_tags(&fragment_tag, &buffer, &foo_count, get_barrier_read_desc(world_rank))) {
-            return MIMPI_ERROR_REMOTE_FINISHED;
-        }
-        if (2 * ((w +i) % n) + 2 < world_size) { // Jak mamy prawe dziecko to czekamy na drugą wiadomość
-            read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &buffer, &foo_count, &fragment_tag); // Czekamy na wiadomość od rodzica
-            if (handle_fragment_tags(&fragment_tag, &buffer, &foo_count, get_barrier_read_desc(world_rank))) {
+        if (p < world_size) { // mamy prawe dziecko
+//            printf("Ala3, %d\n", world_rank);
+            if (read_message_barrier(get_barrier_read_desc(world_rank), &buffer)) {
+                free(buffer);
                 return MIMPI_ERROR_REMOTE_FINISHED;
             }
         }
-        void* foo_message = malloc(512);
-        assert(foo_message);
-        memset(foo_message, 0, 512);
-        ASSERT_SYS_OK(chsend(get_barrier_write_desc(find_parent(root)), foo_message, 512)); // wysyłamy wiadomość rodzicowi // TODO tu 512 dziala bo to nie send
-        free(foo_message);
+
+
+        if (world_rank != root) { // budzimy rodzica
+//            printf("Ala4, %d\n", world_rank);
+            void *wake_up = malloc(512);
+            memset(wake_up, 0, 512);
+            send_message_to_pipe_barrier(get_barrier_write_desc(find_parent(root)), wake_up, 100);
+            free(wake_up);
+        }
     }
     else { // jesteśmy liściem
-        void* foo_message = malloc(512);
-        assert(foo_message);
-        memset(foo_message, 0, 512);
-        ASSERT_SYS_OK(chsend(get_barrier_write_desc(find_parent(root)), foo_message, 512)); // wysyłamy wiadomość rodzicowi
-        free(foo_message);
+//        printf("Ala5, %d\n", world_rank);
+        void* wake_up = malloc(512);
+        memset(wake_up, 0, 512);
+        send_message_to_pipe_barrier(get_barrier_write_desc(find_parent(root)), wake_up, 100);
+        free(wake_up);
     }
+
+    // Wysyłamy wiadomość od roota
+    if (world_rank == root || l < world_size) { // jesteśmy korzeniem lub rodzicem
+//        printf("Ala6, %d\n", world_rank);
+
+        if (world_rank != root) {
+//            printf("Ala7, %d\n", world_rank);
+            if (read_message_barrier(get_barrier_read_desc(world_rank), &buffer)) {
+                free(buffer);
+                return MIMPI_ERROR_REMOTE_FINISHED;
+            }
+            memcpy(data, buffer, count);
+        }
+
+        if (l < world_size) {
+//            printf("Ala8, zapisuje do pipe'a %d, %d\n", get_barrier_write_desc(l_send), world_rank);
+            send_message_to_pipe_barrier(get_barrier_write_desc(l_send), data, count);
+        }
+        if (p < world_size) {
+//            printf("Ala9, %d\n", world_rank);
+            send_message_to_pipe_barrier(get_barrier_write_desc(p_send), data, count);
+        }
+    }
+    else { // jestesmy lisciem
+//        printf("Ala10, czytam z pipe'a %d, %d\n", get_barrier_read_desc(world_rank), world_rank);
+        if (read_message_barrier(get_barrier_read_desc(world_rank), &buffer)) {
+            free(buffer);
+//            printf("Ala10.1, %d\n", world_rank);
+            return MIMPI_ERROR_REMOTE_FINISHED;
+        }
+//        printf("Ala10.2, %d\n", world_rank);
+        memcpy(data, buffer, count);
+    }
+
+
+//    printf("Ala11, %d\n", world_rank);
 
     free(buffer);
 
-    // Tutaj już wszyscy się zebrali. Przekazujemy dane
-    if (world_rank == root) { // jesteśmy korzeniem
-
-        children_wake_up_and_send_data(w, i, n, data, count);
-    }
-    else if (2 * ((w +i) % n) + 1 < world_size)  { // jesteśmy rodzicem niekorzeniem
-
-        // czekamy na wiadomosc od rodzica
-        void* read_message = malloc(496); // Ten bufor może zostać powiększony
-        assert(read_message);
-        read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &read_message, &foo_count, &fragment_tag);
-
-        if (handle_fragment_tags(&fragment_tag, &read_message, &foo_count, get_barrier_read_desc(world_rank))) {
-            return MIMPI_ERROR_REMOTE_FINISHED;
-        }
-
-        // zapisujemy dane od root'a
-        memcpy(data, read_message, count);
-        free(read_message);
-
-        children_wake_up_and_send_data(w, i, n, data, count);
-    }
-    else { // jesteśmy liściem
-
-        // czekamy na wiadomosc od rodzica
-        void* read_message = malloc(496); // Ten bufor może zostać powiększony
-        assert(read_message);
-        read_message_from_pom_pipe(get_barrier_read_desc(world_rank), &read_message, &foo_count, &fragment_tag);
-
-        if (handle_fragment_tags(&fragment_tag, &read_message, &foo_count, get_barrier_read_desc(world_rank))) {
-            return MIMPI_ERROR_REMOTE_FINISHED;
-        }
-
-        // zapisujemy dane od root'a
-        memcpy(data, read_message, count);
-        free(read_message);
-
-    }
-
     return MIMPI_SUCCESS;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Korzystamy tylko z synchronizującego efektu Bcast
 MIMPI_Retcode MIMPI_Barrier() {
